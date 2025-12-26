@@ -1,5 +1,7 @@
+
 import React, { useState } from 'react';
 import { Search, Upload, MapPin, Shield, AlertTriangle, Globe, Image, FileText, Activity, Eye, Target, Zap } from 'lucide-react';
+import jsPDF from 'jspdf';
 
 import {
   SiGithub,
@@ -11,13 +13,66 @@ import {
   SiTiktok,
   SiYoutube
 } from 'react-icons/si';
+// ===== Fake Backend API =====
+const fakeAnalyzeRiskAPI = (input) => {
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      resolve({
+        summary: {
+          critical: 2,
+          medium: 2,
+          low: 1
+        },
+        overallRisk: 7.5,
+        findings: [
+          {
+            category: 'Credentials',
+            item: 'Password found in data breach (2023)',
+            risk: 'CRITICAL',
+            score: 9.5,
+            action: 'Change password immediately'
+          },
+          {
+            category: 'Personal Identifiers',
+            item: 'Full name + DOB on public profile',
+            risk: 'CRITICAL',
+            score: 8.5,
+            action: 'Remove or restrict access'
+          },
+          {
+            category: 'Contact Details',
+            item: 'Email exposed on 3 platforms',
+            risk: 'MEDIUM',
+            score: 6.0,
+            action: 'Monitor for spam/phishing'
+          },
+          {
+            category: 'Behavioral Patterns',
+            item: 'Consistent location patterns',
+            risk: 'MEDIUM',
+            score: 5.5,
+            action: 'Disable location sharing'
+          },
+          {
+            category: 'Organizational Links',
+            item: 'Company affiliation visible',
+            risk: 'LOW',
+            score: 3.0,
+            action: 'No immediate action needed'
+          }
+        ]
+      });
+    }, 2000); // simulate network + AI delay
+  });
+};
 
 export default function OSINTDashboard() {
-  const [activeTab, setActiveTab] = useState('multi-modal');
+ const [activeTab, setActiveTab] = useState('risk');
   const [targetInput, setTargetInput] = useState('');
   const [analyzing, setAnalyzing] = useState(false);
   const [results, setResults] = useState(null);
   const [logs, setLogs] = useState([]);
+const [riskData, setRiskData] = useState(null);
 
   const challenges = [
     { id: 'multi-modal', name: 'Multi-Modal Fusion', icon: Globe },
@@ -77,6 +132,47 @@ export default function OSINTDashboard() {
       }, index * 600);
     });
   };
+const downloadReport = () => {
+  if (!riskData) return;
+
+  const doc = new jsPDF();
+  let y = 20;
+
+  doc.setFontSize(18);
+  doc.text('OSINT Intelligence Report', 20, y);
+  y += 10;
+
+  doc.setFontSize(12);
+  doc.text(`Target: ${targetInput || 'N/A'}`, 20, y);
+  y += 8;
+
+  doc.text(`Overall Risk Score: ${riskData.overallRisk}/10`, 20, y);
+  y += 12;
+
+  doc.setFontSize(14);
+  doc.text('Risk Findings:', 20, y);
+  y += 8;
+
+  riskData.findings.forEach((item, index) => {
+    doc.setFontSize(11);
+    doc.text(
+      `${index + 1}. [${item.risk}] ${item.category} - ${item.item}`,
+      20,
+      y
+    );
+    y += 7;
+
+    doc.text(`   Recommendation: ${item.action}`, 20, y);
+    y += 8;
+
+    if (y > 270) {
+      doc.addPage();
+      y = 20;
+    }
+  });
+
+  doc.save('OSINT_Intelligence_Report.pdf');
+};
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white">
@@ -410,104 +506,128 @@ export default function OSINTDashboard() {
           <div className="space-y-6">
             <div className="bg-black/50 backdrop-blur-sm border border-purple-500/20 rounded-xl p-6">
               <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-                <Shield className="w-5 h-5 text-purple-400" />
-                Exposure Classification & Risk Assessment
-              </h2>
+  <Shield className="w-5 h-5 text-purple-400" />
+
+  <span>Exposure Classification & Risk Assessment</span>
+
+  <span className="ml-2 text-xs bg-purple-500/20 text-purple-300 px-2 py-1 rounded">
+    AI Powered
+  </span>
+</h2>
+<button
+  onClick={async () => {
+    setRiskData(null);
+    const response = await fakeAnalyzeRiskAPI(targetInput);
+    setRiskData(response);
+  }}
+  className="mb-6 px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg text-sm"
+>
+  Run AI Risk Analysis
+</button>
+
+<button
+  onClick={downloadReport}
+  disabled={!riskData}
+  className="mb-6 ml-3 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 rounded-lg text-sm"
+>
+  Download Intelligence Report
+</button>
+
 
               {/* Risk Overview */}
+              {/* Risk Score Explanation */}
+<div className="mb-6 bg-black/40 border border-purple-500/20 rounded-lg p-4">
+  <h4 className="text-sm font-semibold text-purple-300 mb-2">
+    How Risk Score is Calculated
+  </h4>
+  <p className="text-xs text-gray-300 leading-relaxed">
+    Each exposed data point is classified by severity using AI reasoning.
+    Critical exposures carry higher weight due to exploitability and impact.
+  </p>
+
+  <ul className="mt-2 text-xs text-gray-400 space-y-1">
+    <li>• CRITICAL exposure = 4 points</li>
+    <li>• MEDIUM exposure = 2 points</li>
+    <li>• LOW exposure = 1 point</li>
+    <li>• Final score normalized to a 0–10 scale</li>
+  </ul>
+</div>
+
               <div className="grid md:grid-cols-3 gap-4 mb-6">
                 <div className="bg-gradient-to-br from-red-500/20 to-red-600/10 border border-red-500/30 rounded-lg p-6 text-center">
                   <AlertTriangle className="w-8 h-8 mx-auto mb-3 text-red-400" />
-                  <p className="text-3xl font-bold mb-2">2</p>
+                  <p className="text-3xl font-bold mb-2">4</p>
                   <p className="text-sm text-red-300">Critical Exposures</p>
                 </div>
                 <div className="bg-gradient-to-br from-orange-500/20 to-orange-600/10 border border-orange-500/30 rounded-lg p-6 text-center">
                   <AlertTriangle className="w-8 h-8 mx-auto mb-3 text-orange-400" />
-                  <p className="text-3xl font-bold mb-2">5</p>
+                  <p className="text-3xl font-bold mb-2">2</p>
                   <p className="text-sm text-orange-300">Medium Risk</p>
                 </div>
                 <div className="bg-gradient-to-br from-green-500/20 to-green-600/10 border border-green-500/30 rounded-lg p-6 text-center">
                   <Shield className="w-8 h-8 mx-auto mb-3 text-green-400" />
-                  <p className="text-3xl font-bold mb-2">5</p>
+                  <p className="text-3xl font-bold mb-2">1</p>
                   <p className="text-sm text-green-300">Low Risk</p>
                 </div>
               </div>
 
               {/* Detailed Risk Breakdown */}
               <div className="space-y-3">
-                {[
-                  {
-                    category: 'Credentials',
-                    item: 'Password found in data breach (2023)',
-                    risk: 'CRITICAL',
-                    score: 9.5,
-                    action: 'Change password immediately'
-                  },
-                  {
-                    category: 'Personal Identifiers',
-                    item: 'Full name + DOB on public profile',
-                    risk: 'CRITICAL',
-                    score: 8.5,
-                    action: 'Remove or restrict access'
-                  },
-                  {
-                    category: 'Contact Details',
-                    item: 'Email exposed on 3 platforms',
-                    risk: 'MEDIUM',
-                    score: 6.0,
-                    action: 'Monitor for spam/phishing'
-                  },
-                  {
-                    category: 'Behavioral Patterns',
-                    item: 'Consistent check-in location patterns',
-                    risk: 'MEDIUM',
-                    score: 5.5,
-                    action: 'Disable location sharing'
-                  },
-                  {
-                    category: 'Organizational Links',
-                    item: 'Company affiliation visible',
-                    risk: 'LOW',
-                    score: 3.0,
-                    action: 'No immediate action needed'
-                  }
-                ].map((item, idx) => (
-                  <div key={idx} className="bg-black/40 border border-purple-500/20 rounded-lg p-4 hover:bg-black/60 transition-colors">
-                    <div className="flex items-start justify-between mb-2">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-1">
-                          <span className="text-xs font-medium text-purple-400 bg-purple-500/20 px-2 py-1 rounded">
-                            {item.category}
-                          </span>
-                          <span className={`text-xs font-medium px-2 py-1 rounded ${
-                            item.risk === 'CRITICAL' ? 'bg-red-500/20 text-red-300' :
-                            item.risk === 'MEDIUM' ? 'bg-orange-500/20 text-orange-300' :
-                            'bg-green-500/20 text-green-300'
-                          }`}>
-                            {item.risk}
-                          </span>
-                          <span className="text-sm font-bold text-white">{item.score}/10</span>
-                        </div>
-                        <p className="text-sm mb-2">{item.item}</p>
-                        <p className="text-xs text-purple-300">
-                          <span className="font-medium">Recommended Action:</span> {item.action}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="mt-3">
-                      <div className="bg-black/30 rounded-full h-2">
-                        <div 
-                          className={`h-2 rounded-full ${
-                            item.risk === 'CRITICAL' ? 'bg-red-500' :
-                            item.risk === 'MEDIUM' ? 'bg-orange-500' :
-                            'bg-green-500'
-                          }`}
-                          style={{width: `${item.score * 10}%`}}
-                        ></div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
+                 {riskData?.findings.map((item, idx) => (
+    <div
+      key={idx}
+      className="bg-black/40 border border-purple-500/20 rounded-lg p-4 hover:bg-black/60 transition-colors"
+    >
+      <div className="flex items-start justify-between mb-2">
+        <div className="flex-1">
+          <div className="flex items-center gap-3 mb-1">
+            <span className="text-xs font-medium text-purple-400 bg-purple-500/20 px-2 py-1 rounded">
+              {item.category}
+            </span>
+
+            <span
+              className={`text-xs font-medium px-2 py-1 rounded ${
+                item.risk === 'CRITICAL'
+                  ? 'bg-red-500/20 text-red-300'
+                  : item.risk === 'MEDIUM'
+                  ? 'bg-orange-500/20 text-orange-300'
+                  : 'bg-green-500/20 text-green-300'
+              }`}
+            >
+              {item.risk}
+            </span>
+
+            <span className="text-sm font-bold text-white">
+              {item.score}/10
+            </span>
+          </div>
+
+          <p className="text-sm mb-2">{item.item}</p>
+
+          <p className="text-xs text-purple-300">
+            <span className="font-medium">Recommended Action:</span>{' '}
+            {item.action}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-3">
+        <div className="bg-black/30 rounded-full h-2">
+          <div
+            className={`h-2 rounded-full ${
+              item.risk === 'CRITICAL'
+                ? 'bg-red-500'
+                : item.risk === 'MEDIUM'
+                ? 'bg-orange-500'
+                : 'bg-green-500'
+            }`}
+            style={{ width: `${item.score * 10}%` }}
+          ></div>
+        </div>
+      </div>
+    </div>
+  ))}
+
               </div>
 
               {/* AI Recommendations */}
