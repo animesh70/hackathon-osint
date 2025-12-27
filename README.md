@@ -10,7 +10,7 @@
 ### 1. Setup
 
 # Do Ctrl + ` To open Terminal
-In Terminal Do:
+In Terminal Do: 
 ```bash
 pip install -r requirements.txt
 ```
