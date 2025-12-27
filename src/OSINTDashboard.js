@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Search, Upload, MapPin, Shield, AlertTriangle, Globe, Image, FileText, Activity, Eye, Target, Zap } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Search, Upload, MapPin, Shield, AlertTriangle, Globe, Image, FileText, Activity, Eye, Target, Zap, CheckCircle, XCircle } from 'lucide-react';
 
 import {
   SiGithub,
@@ -18,6 +18,24 @@ export default function OSINTDashboard() {
   const [analyzing, setAnalyzing] = useState(false);
   const [results, setResults] = useState(null);
   const [logs, setLogs] = useState([]);
+  const [backendStatus, setBackendStatus] = useState(null);
+  const [selectedPlatforms, setSelectedPlatforms] = useState({
+    github: true,
+    twitter: true,
+    linkedin: true,
+    reddit: true,
+    instagram: false,
+    facebook: false,
+    tiktok: false,
+    youtube: false
+  });
+  
+  // Image/Video analysis state
+  const [uploadedFile, setUploadedFile] = useState(null);
+  const [geoResults, setGeoResults] = useState(null);
+  const [geoAnalyzing, setGeoAnalyzing] = useState(false);
+
+  const BACKEND_URL = 'http://localhost:5000';
 
   const challenges = [
     { id: 'multi-modal', name: 'Multi-Modal Fusion', icon: Globe },
@@ -25,57 +43,160 @@ export default function OSINTDashboard() {
     { id: 'risk', name: 'Risk Assessment', icon: Shield }
   ];
 
+  // Check backend health on mount
+  useEffect(() => {
+    checkBackendHealth();
+  }, []);
+
+  const checkBackendHealth = async () => {
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/health`);
+      const data = await response.json();
+      setBackendStatus(data);
+      addLog('Backend connected successfully', 'success');
+    } catch (error) {
+      setBackendStatus({ status: 'offline', error: error.message });
+      addLog('Backend connection failed. Make sure Flask server is running on port 5000', 'error');
+    }
+  };
+
+  const addLog = (message, type = 'info') => {
+    const timestamp = new Date().toLocaleTimeString();
+    setLogs(prev => [...prev, { message, timestamp, type }]);
+  };
+
+  const togglePlatform = (platform) => {
+    setSelectedPlatforms(prev => ({
+      ...prev,
+      [platform]: !prev[platform]
+    }));
+  };
+
   const handleAnalyze = async () => {
+    if (!targetInput.trim()) {
+      addLog('Please enter a target identifier', 'error');
+      return;
+    }
+
+    if (!backendStatus || backendStatus.status === 'offline') {
+      addLog('Backend is offline. Please start the Flask server.', 'error');
+      return;
+    }
+
     setAnalyzing(true);
     setResults(null);
     setLogs([]);
     
-    const steps = [
-      'Initializing OSINT core...',
-      'Resolving target identifiers...',
-      'Querying open-source platforms...',
-      'Scraping public repositories...',
-      'Extracting metadata...',
-      'Running correlation analysis...',
-      'Calculating exposure risk...',
-      'Finalizing intelligence report...'
-    ];
+    addLog('Initializing OSINT analysis...');
+    addLog(`Target: ${targetInput}`);
     
-    steps.forEach((step, index) => {
-      setTimeout(() => {
-        setLogs(prev => [...prev, step]);
-      }, index * 700);
-    });
-    
-    setTimeout(() => {
-      setResults({
-        risk: 7.5,
-        exposures: 12,
-        platforms: 5,
-        critical: 2
+    const enabledPlatforms = Object.keys(selectedPlatforms).filter(p => selectedPlatforms[p]);
+    addLog(`Platforms selected: ${enabledPlatforms.join(', ')}`);
+
+    try {
+      addLog('Sending request to backend...');
+      
+      const response = await fetch(`${BACKEND_URL}/api/analyze`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          target: targetInput,
+          platforms: enabledPlatforms
+        })
       });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      addLog('Analysis complete!');
+      addLog(`AI Service: ${data.ai_service_used || 'none'}`);
+      addLog(`Platforms found: ${data.risk_score.platforms}`);
+      addLog(`Risk level: ${data.risk_score.level}`);
+      
+      setResults(data);
+      
+    } catch (error) {
+      addLog(`Error: ${error.message}`, 'error');
+      console.error('Analysis error:', error);
+    } finally {
       setAnalyzing(false);
-    }, steps.length * 700 + 500);
+    }
   };
 
-  const handleVisualAnalyze = () => {
+  const handleFileUpload = (event) => {
+    const file = event.target.files[0];
+    if (file) {
+      setUploadedFile(file);
+      addLog(`File selected: ${file.name}`);
+    }
+  };
+
+  const handleVisualAnalyze = async () => {
+    if (!uploadedFile) {
+      addLog('Please select an image or video file', 'error');
+      return;
+    }
+
+    if (!backendStatus || backendStatus.status === 'offline') {
+      addLog('Backend is offline. Please start the Flask server.', 'error');
+      return;
+    }
+
+    setGeoAnalyzing(true);
+    setGeoResults(null);
     setLogs([]);
-    const steps = [
-      'Loading image file...',
-      'Extracting EXIF metadata...',
-      'Scanning for GPS coordinates...',
-      'Analyzing visual features...',
-      'Detecting landmarks and text...',
-      'Running AI geolocation inference...',
-      'Cross-referencing environmental clues...',
-      'Generating location estimate...'
-    ];
-    
-    steps.forEach((step, index) => {
-      setTimeout(() => {
-        setLogs(prev => [...prev, step]);
-      }, index * 600);
-    });
+
+    const isVideo = uploadedFile.type.startsWith('video/');
+    const endpoint = isVideo ? '/api/geolocation/video' : '/api/geolocation/image';
+
+    addLog(`Analyzing ${isVideo ? 'video' : 'image'}: ${uploadedFile.name}`);
+    addLog('Uploading file to backend...');
+
+    try {
+      const formData = new FormData();
+      formData.append('file', uploadedFile);
+      if (isVideo) {
+        formData.append('num_frames', '5');
+      }
+
+      addLog('Processing file...');
+      if (isVideo) {
+        addLog('Extracting frames from video...');
+      } else {
+        addLog('Extracting EXIF metadata...');
+      }
+
+      const response = await fetch(`${BACKEND_URL}${endpoint}`, {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      addLog('Analysis complete!');
+      addLog(`Coordinate source: ${data.coordinate_source}`);
+      addLog(`Confidence: ${data.confidence}%`);
+      if (data.coordinates) {
+        addLog(`Location: ${data.coordinates.latitude}, ${data.coordinates.longitude}`);
+      }
+      
+      setGeoResults(data);
+      
+    } catch (error) {
+      addLog(`Error: ${error.message}`, 'error');
+      console.error('Visual analysis error:', error);
+    } finally {
+      setGeoAnalyzing(false);
+    }
   };
 
   return (
@@ -99,8 +220,11 @@ export default function OSINTDashboard() {
             </div>
             <div className="flex items-center gap-4">
               <span className="text-sm text-purple-300">GITA Autonomous College</span>
-              <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse"></div>
-              <span className="text-sm">System Active</span>
+              <div className={`w-2 h-2 rounded-full ${backendStatus?.status === 'online' ? 'bg-green-400' : 'bg-red-400'} animate-pulse`}></div>
+              <span className="text-sm">{backendStatus?.status === 'online' ? 'Backend Online' : 'Backend Offline'}</span>
+              {backendStatus?.ai_service && (
+                <span className="text-xs bg-purple-500/20 px-2 py-1 rounded">AI: {backendStatus.ai_service}</span>
+              )}
             </div>
           </div>
         </div>
@@ -148,10 +272,11 @@ export default function OSINTDashboard() {
                       onChange={(e) => setTargetInput(e.target.value)}
                       placeholder="Enter username, email, or profile URL..."
                       className="flex-1 bg-black/60 border border-purple-500/30 rounded-lg px-4 py-3 focus:outline-none focus:border-purple-500 placeholder-gray-500"
+                      onKeyPress={(e) => e.key === 'Enter' && handleAnalyze()}
                     />
                     <button
                       onClick={handleAnalyze}
-                      disabled={analyzing || !targetInput}
+                      disabled={analyzing || !targetInput || backendStatus?.status !== 'online'}
                       className="px-6 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg font-medium transition-colors flex items-center gap-2"
                     >
                       {analyzing ? (
@@ -172,19 +297,24 @@ export default function OSINTDashboard() {
                 {/* Data Sources */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   {[
-                    { name: 'GitHub', icon: SiGithub },
-                    { name: 'Twitter/X', icon: SiX },
-                    { name: 'LinkedIn', icon: SiLinkedin },
-                    { name: 'Reddit', icon: SiReddit },
-                    { name: 'Instagram', icon: SiInstagram },
-                    { name: 'Facebook', icon: SiFacebook },
-                    { name: 'TikTok', icon: SiTiktok },
-                    { name: 'YouTube', icon: SiYoutube }
+                    { name: 'GitHub', icon: SiGithub, key: 'github' },
+                    { name: 'Twitter/X', icon: SiX, key: 'twitter' },
+                    { name: 'LinkedIn', icon: SiLinkedin, key: 'linkedin' },
+                    { name: 'Reddit', icon: SiReddit, key: 'reddit' },
+                    { name: 'Instagram', icon: SiInstagram, key: 'instagram' },
+                    { name: 'Facebook', icon: SiFacebook, key: 'facebook' },
+                    { name: 'TikTok', icon: SiTiktok, key: 'tiktok' },
+                    { name: 'YouTube', icon: SiYoutube, key: 'youtube' }
                   ].map((platform) => {
                     const Icon = platform.icon;
                     return (
                       <label key={platform.name} className="flex items-center gap-2 bg-black/40 p-3 rounded-lg cursor-pointer hover:bg-black/60 transition-colors group">
-                        <input type="checkbox" defaultChecked className="rounded border-purple-500" />
+                        <input 
+                          type="checkbox" 
+                          checked={selectedPlatforms[platform.key]}
+                          onChange={() => togglePlatform(platform.key)}
+                          className="rounded border-purple-500" 
+                        />
                         <Icon className="w-4 h-4 text-purple-400 group-hover:text-purple-300 transition-colors" />
                         <span className="text-sm">{platform.name}</span>
                       </label>
@@ -205,14 +335,16 @@ export default function OSINTDashboard() {
                   {logs.map((log, i) => (
                     <div key={i} className="text-[11px] flex gap-3 animate-in fade-in slide-in-from-left-2">
                       <span className="text-purple-500/50">
-                        [{new Date().toLocaleTimeString()}]
+                        [{log.timestamp}]
                       </span>
-                      <span className="text-gray-300">{log}</span>
+                      <span className={log.type === 'error' ? 'text-red-400' : log.type === 'success' ? 'text-green-400' : 'text-gray-300'}>
+                        {log.message}
+                      </span>
                     </div>
                   ))}
                   {logs.length === 0 && (
                     <p className="text-xs text-gray-500 italic">
-                      Awaiting command…
+                      Awaiting command...
                     </p>
                   )}
                 </div>
@@ -225,28 +357,28 @@ export default function OSINTDashboard() {
                     <div className="bg-gradient-to-br from-red-500/20 to-red-600/10 border border-red-500/30 rounded-lg p-4">
                       <div className="flex items-center justify-between mb-2">
                         <AlertTriangle className="w-5 h-5 text-red-400" />
-                        <span className="text-2xl font-bold">{results.risk}</span>
+                        <span className="text-2xl font-bold">{results.risk_score.risk}</span>
                       </div>
                       <p className="text-sm text-red-300">Risk Score</p>
                     </div>
                     <div className="bg-gradient-to-br from-blue-500/20 to-blue-600/10 border border-blue-500/30 rounded-lg p-4">
                       <div className="flex items-center justify-between mb-2">
                         <Eye className="w-5 h-5 text-blue-400" />
-                        <span className="text-2xl font-bold">{results.exposures}</span>
+                        <span className="text-2xl font-bold">{results.risk_score.exposures}</span>
                       </div>
                       <p className="text-sm text-blue-300">Exposures Found</p>
                     </div>
                     <div className="bg-gradient-to-br from-purple-500/20 to-purple-600/10 border border-purple-500/30 rounded-lg p-4">
                       <div className="flex items-center justify-between mb-2">
                         <Globe className="w-5 h-5 text-purple-400" />
-                        <span className="text-2xl font-bold">{results.platforms}</span>
+                        <span className="text-2xl font-bold">{results.risk_score.platforms}</span>
                       </div>
                       <p className="text-sm text-purple-300">Platforms</p>
                     </div>
                     <div className="bg-gradient-to-br from-orange-500/20 to-orange-600/10 border border-orange-500/30 rounded-lg p-4">
                       <div className="flex items-center justify-between mb-2">
                         <Zap className="w-5 h-5 text-orange-400" />
-                        <span className="text-2xl font-bold">{results.critical}</span>
+                        <span className="text-2xl font-bold">{results.risk_score.critical}</span>
                       </div>
                       <p className="text-sm text-orange-300">Critical Issues</p>
                     </div>
@@ -259,12 +391,7 @@ export default function OSINTDashboard() {
                       Discovered Intelligence
                     </h3>
                     <div className="space-y-2">
-                      {[
-                        { type: 'Email', value: 'john.doe@example.com', risk: 'MEDIUM', platforms: 'GitHub, LinkedIn' },
-                        { type: 'Username', value: 'johndoe123', risk: 'LOW', platforms: 'Twitter, Reddit, GitHub' },
-                        { type: 'Credential', value: 'Found in breach database', risk: 'CRITICAL', platforms: 'HaveIBeenPwned' },
-                        { type: 'Location', value: 'Bhubaneswar, India', risk: 'MEDIUM', platforms: 'Instagram, Twitter' }
-                      ].map((finding, idx) => (
+                      {results.findings.map((finding, idx) => (
                         <div key={idx} className="flex items-center justify-between p-3 bg-black/40 rounded-lg hover:bg-black/60 transition-colors">
                           <div className="flex-1">
                             <div className="flex items-center gap-3">
@@ -284,6 +411,23 @@ export default function OSINTDashboard() {
                       ))}
                     </div>
                   </div>
+
+                  {/* AI Analysis */}
+                  {results.ai_analysis && results.ai_analysis.summary && (
+                    <div className="bg-gradient-to-br from-purple-500/10 to-blue-500/10 border border-purple-500/30 rounded-lg p-4">
+                      <h3 className="font-medium mb-3 flex items-center gap-2">
+                        <Zap className="w-4 h-4 text-purple-400" />
+                        AI Analysis Summary
+                      </h3>
+                      <p className="text-sm text-gray-300">{results.ai_analysis.summary}</p>
+                      {results.ai_analysis.risk_assessment && (
+                        <div className="mt-3 p-3 bg-black/40 rounded">
+                          <p className="text-xs text-purple-300 mb-2">Risk Level: <span className="font-bold">{results.ai_analysis.risk_assessment.level}</span></p>
+                          <p className="text-xs text-purple-300">Score: <span className="font-bold">{results.ai_analysis.risk_assessment.score}/10</span></p>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -300,17 +444,46 @@ export default function OSINTDashboard() {
               </h2>
               
               {/* Upload Zone */}
-              <div className="border-2 border-dashed border-purple-500/30 rounded-lg p-12 text-center hover:border-purple-500/60 transition-colors cursor-pointer bg-black/30">
+              <div className="border-2 border-dashed border-purple-500/30 rounded-lg p-12 text-center hover:border-purple-500/60 transition-colors">
                 <Upload className="w-12 h-12 mx-auto mb-4 text-purple-400" />
                 <p className="text-lg mb-2">Drop image or video here</p>
-                <p className="text-sm text-gray-400">Supports JPG, PNG, MP4, MOV</p>
-                <button 
-                  onClick={handleVisualAnalyze}
-                  className="mt-4 px-6 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg transition-colors"
-                >
-                  Browse Files
-                </button>
+                <p className="text-sm text-gray-400 mb-4">Supports JPG, PNG, MP4, MOV</p>
+                <input
+                  type="file"
+                  accept="image/*,video/*"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                  id="file-upload"
+                />
+                <label htmlFor="file-upload" className="cursor-pointer">
+                  <span className="inline-block px-6 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg transition-colors">
+                    Browse Files
+                  </span>
+                </label>
+                {uploadedFile && (
+                  <p className="mt-4 text-sm text-green-400">Selected: {uploadedFile.name}</p>
+                )}
               </div>
+
+              {uploadedFile && (
+                <button
+                  onClick={handleVisualAnalyze}
+                  disabled={geoAnalyzing || backendStatus?.status !== 'online'}
+                  className="mt-4 w-full px-6 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                >
+                  {geoAnalyzing ? (
+                    <>
+                      <Activity className="w-4 h-4 animate-spin" />
+                      Analyzing...
+                    </>
+                  ) : (
+                    <>
+                      <Search className="w-4 h-4" />
+                      Analyze for Geolocation
+                    </>
+                  )}
+                </button>
+              )}
 
               {/* Real-Time Logs */}
               <div className="mt-6 bg-black/70 border border-purple-500/20 rounded-lg p-4 font-mono">
@@ -324,18 +497,110 @@ export default function OSINTDashboard() {
                   {logs.map((log, i) => (
                     <div key={i} className="text-[11px] flex gap-3 animate-in fade-in slide-in-from-left-2">
                       <span className="text-purple-500/50">
-                        [{new Date().toLocaleTimeString()}]
+                        [{log.timestamp}]
                       </span>
-                      <span className="text-gray-300">{log}</span>
+                      <span className={log.type === 'error' ? 'text-red-400' : log.type === 'success' ? 'text-green-400' : 'text-gray-300'}>
+                        {log.message}
+                      </span>
                     </div>
                   ))}
                   {logs.length === 0 && (
                     <p className="text-xs text-gray-500 italic">
-                      Awaiting command…
+                      Awaiting command...
                     </p>
                   )}
                 </div>
               </div>
+
+              {/* Geolocation Results */}
+              {geoResults && (
+                <div className="mt-6 space-y-4">
+                  {geoResults.coordinates && (
+                    <div className="bg-gradient-to-br from-green-500/10 to-green-600/10 border border-green-500/30 rounded-lg p-4">
+                      <h3 className="font-medium mb-3 flex items-center gap-2">
+                        <MapPin className="w-4 h-4 text-green-400" />
+                        Coordinates Extracted
+                      </h3>
+                      <div className="grid md:grid-cols-2 gap-4">
+                        <div>
+                          <p className="text-sm text-gray-300 mb-2">Latitude:</p>
+                          <p className="font-mono text-green-400">{geoResults.coordinates.latitude}°</p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-gray-300 mb-2">Longitude:</p>
+                          <p className="font-mono text-green-400">{geoResults.coordinates.longitude}°</p>
+                        </div>
+                      </div>
+                      <div className="mt-4">
+                        <p className="text-sm text-gray-300 mb-2">Source: <span className="font-medium text-purple-400">{geoResults.coordinate_source}</span></p>
+                        <p className="text-sm text-gray-300 mb-2">Confidence:</p>
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 bg-black/30 rounded-full h-2">
+                            <div className="bg-green-400 h-2 rounded-full" style={{width: `${geoResults.confidence}%`}}></div>
+                          </div>
+                          <span className="text-sm font-medium">{geoResults.confidence}%</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {geoResults.location_estimate && (
+                    <div className="bg-black/60 border border-purple-500/20 rounded-lg p-4">
+                      <h3 className="font-semibold mb-3">Location Estimate</h3>
+                      <p className="text-lg text-purple-300 mb-4">{geoResults.location_estimate}</p>
+                      
+                      {geoResults.analysis && (
+                        <div className="mt-4 p-3 bg-black/40 rounded">
+                          <p className="text-sm text-gray-300">{geoResults.analysis}</p>
+                        </div>
+                      )}
+
+                      {geoResults.clues && geoResults.clues.length > 0 && (
+                        <div className="mt-4">
+                          <p className="text-sm font-medium text-purple-300 mb-2">Key Clues:</p>
+                          <ul className="space-y-1">
+                            {geoResults.clues.map((clue, idx) => (
+                              <li key={idx} className="text-xs text-gray-400 flex items-start gap-2">
+                                <span className="text-purple-400">•</span>
+                                <span>{clue}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {geoResults.landmarks && geoResults.landmarks.length > 0 && (
+                        <div className="mt-4">
+                          <p className="text-sm font-medium text-purple-300 mb-2">Landmarks Identified:</p>
+                          <div className="flex flex-wrap gap-2">
+                            {geoResults.landmarks.map((landmark, idx) => (
+                              <span key={idx} className="text-xs bg-purple-500/20 text-purple-300 px-2 py-1 rounded">
+                                {landmark}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {geoResults.exif_data && geoResults.exif_data.has_exif && (
+                    <div className="bg-black/60 border border-purple-500/20 rounded-lg p-4">
+                      <h3 className="font-semibold mb-3">EXIF Metadata</h3>
+                      <div className="grid md:grid-cols-2 gap-4 text-sm">
+                        <div>
+                          <p className="text-purple-300 mb-1">Camera:</p>
+                          <p className="text-gray-300">{geoResults.exif_data.camera.make} {geoResults.exif_data.camera.model}</p>
+                        </div>
+                        <div>
+                          <p className="text-purple-300 mb-1">Date Taken:</p>
+                          <p className="text-gray-300">{geoResults.exif_data.datetime.original}</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Analysis Options */}
               <div className="mt-6 grid grid-cols-2 gap-4">
@@ -374,39 +639,12 @@ export default function OSINTDashboard() {
                   </ul>
                 </div>
               </div>
-
-              {/* Sample Result */}
-              <div className="mt-6 bg-gradient-to-br from-purple-500/10 to-blue-500/10 border border-purple-500/30 rounded-lg p-4">
-                <h3 className="font-medium mb-3 flex items-center gap-2">
-                  <MapPin className="w-4 h-4 text-green-400" />
-                  Geolocation Estimate
-                </h3>
-                <div className="grid md:grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-sm text-gray-300 mb-2">Coordinates:</p>
-                    <p className="font-mono text-green-400">20.2961° N, 85.8245° E</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-300 mb-2">Confidence:</p>
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1 bg-black/30 rounded-full h-2">
-                        <div className="bg-green-400 h-2 rounded-full" style={{width: '85%'}}></div>
-                      </div>
-                      <span className="text-sm font-medium">85%</span>
-                    </div>
-                  </div>
-                </div>
-                <p className="text-sm text-gray-300 mt-4">
-                  <span className="font-medium">Analysis:</span> Image shows distinctive architecture consistent with Bhubaneswar region. 
-                  Shadow angle suggests afternoon timing. Vegetation indicates tropical climate.
-                </p>
-              </div>
             </div>
           </div>
         )}
 
         {/* Risk Assessment */}
-        {activeTab === 'risk' && (
+        {activeTab === 'risk' && results && (
           <div className="space-y-6">
             <div className="bg-black/50 backdrop-blur-sm border border-purple-500/20 rounded-xl p-6">
               <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
@@ -418,124 +656,115 @@ export default function OSINTDashboard() {
               <div className="grid md:grid-cols-3 gap-4 mb-6">
                 <div className="bg-gradient-to-br from-red-500/20 to-red-600/10 border border-red-500/30 rounded-lg p-6 text-center">
                   <AlertTriangle className="w-8 h-8 mx-auto mb-3 text-red-400" />
-                  <p className="text-3xl font-bold mb-2">2</p>
+                  <p className="text-3xl font-bold mb-2">{results.risk_score.critical}</p>
                   <p className="text-sm text-red-300">Critical Exposures</p>
                 </div>
                 <div className="bg-gradient-to-br from-orange-500/20 to-orange-600/10 border border-orange-500/30 rounded-lg p-6 text-center">
                   <AlertTriangle className="w-8 h-8 mx-auto mb-3 text-orange-400" />
-                  <p className="text-3xl font-bold mb-2">5</p>
+                  <p className="text-3xl font-bold mb-2">{results.findings.filter(f => f.risk === 'MEDIUM').length}</p>
                   <p className="text-sm text-orange-300">Medium Risk</p>
                 </div>
                 <div className="bg-gradient-to-br from-green-500/20 to-green-600/10 border border-green-500/30 rounded-lg p-6 text-center">
                   <Shield className="w-8 h-8 mx-auto mb-3 text-green-400" />
-                  <p className="text-3xl font-bold mb-2">5</p>
+                  <p className="text-3xl font-bold mb-2">{results.findings.filter(f => f.risk === 'LOW').length}</p>
                   <p className="text-sm text-green-300">Low Risk</p>
                 </div>
               </div>
 
+              {/* Risk Factors */}
+              <div className="bg-black/60 border border-purple-500/20 rounded-lg p-4 mb-6">
+                <h3 className="font-semibold mb-3">Risk Factors</h3>
+                <ul className="space-y-2">
+                  {results.risk_score.factors.map((factor, idx) => (
+                    <li key={idx} className="text-sm text-gray-300 flex items-start gap-2">
+                      <AlertTriangle className="w-4 h-4 text-orange-400 mt-0.5 flex-shrink-0" />
+                      <span>{factor}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
               {/* Detailed Risk Breakdown */}
               <div className="space-y-3">
-                {[
-                  {
-                    category: 'Credentials',
-                    item: 'Password found in data breach (2023)',
-                    risk: 'CRITICAL',
-                    score: 9.5,
-                    action: 'Change password immediately'
-                  },
-                  {
-                    category: 'Personal Identifiers',
-                    item: 'Full name + DOB on public profile',
-                    risk: 'CRITICAL',
-                    score: 8.5,
-                    action: 'Remove or restrict access'
-                  },
-                  {
-                    category: 'Contact Details',
-                    item: 'Email exposed on 3 platforms',
-                    risk: 'MEDIUM',
-                    score: 6.0,
-                    action: 'Monitor for spam/phishing'
-                  },
-                  {
-                    category: 'Behavioral Patterns',
-                    item: 'Consistent check-in location patterns',
-                    risk: 'MEDIUM',
-                    score: 5.5,
-                    action: 'Disable location sharing'
-                  },
-                  {
-                    category: 'Organizational Links',
-                    item: 'Company affiliation visible',
-                    risk: 'LOW',
-                    score: 3.0,
-                    action: 'No immediate action needed'
-                  }
-                ].map((item, idx) => (
-                  <div key={idx} className="bg-black/40 border border-purple-500/20 rounded-lg p-4 hover:bg-black/60 transition-colors">
-                    <div className="flex items-start justify-between mb-2">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-1">
-                          <span className="text-xs font-medium text-purple-400 bg-purple-500/20 px-2 py-1 rounded">
-                            {item.category}
-                          </span>
-                          <span className={`text-xs font-medium px-2 py-1 rounded ${
-                            item.risk === 'CRITICAL' ? 'bg-red-500/20 text-red-300' :
-                            item.risk === 'MEDIUM' ? 'bg-orange-500/20 text-orange-300' :
-                            'bg-green-500/20 text-green-300'
-                          }`}>
-                            {item.risk}
-                          </span>
-                          <span className="text-sm font-bold text-white">{item.score}/10</span>
+                {results.findings.map((item, idx) => {
+                  const riskScore = item.risk === 'CRITICAL' ? 9.5 : item.risk === 'MEDIUM' ? 6.0 : 3.0;
+                  return (
+                    <div key={idx} className="bg-black/40 border border-purple-500/20 rounded-lg p-4 hover:bg-black/60 transition-colors">
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3 mb-1">
+                            <span className="text-xs font-medium text-purple-400 bg-purple-500/20 px-2 py-1 rounded">
+                              {item.type}
+                            </span>
+                            <span className={`text-xs font-medium px-2 py-1 rounded ${
+                              item.risk === 'CRITICAL' ? 'bg-red-500/20 text-red-300' :
+                              item.risk === 'MEDIUM' ? 'bg-orange-500/20 text-orange-300' :
+                              'bg-green-500/20 text-green-300'
+                            }`}>
+                              {item.risk}
+                            </span>
+                            <span className="text-sm font-bold text-white">{riskScore}/10</span>
+                          </div>
+                          <p className="text-sm mb-2">{item.value}</p>
+                          <p className="text-xs text-gray-400">Found on: {item.platforms}</p>
                         </div>
-                        <p className="text-sm mb-2">{item.item}</p>
-                        <p className="text-xs text-purple-300">
-                          <span className="font-medium">Recommended Action:</span> {item.action}
-                        </p>
+                      </div>
+                      <div className="mt-3">
+                        <div className="bg-black/30 rounded-full h-2">
+                          <div 
+                            className={`h-2 rounded-full ${
+                              item.risk === 'CRITICAL' ? 'bg-red-500' :
+                              item.risk === 'MEDIUM' ? 'bg-orange-500' :
+                              'bg-green-500'
+                            }`}
+                            style={{width: `${riskScore * 10}%`}}
+                          ></div>
+                        </div>
                       </div>
                     </div>
-                    <div className="mt-3">
-                      <div className="bg-black/30 rounded-full h-2">
-                        <div 
-                          className={`h-2 rounded-full ${
-                            item.risk === 'CRITICAL' ? 'bg-red-500' :
-                            item.risk === 'MEDIUM' ? 'bg-orange-500' :
-                            'bg-green-500'
-                          }`}
-                          style={{width: `${item.score * 10}%`}}
-                        ></div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
               {/* AI Recommendations */}
-              <div className="mt-6 bg-gradient-to-br from-purple-500/10 to-blue-500/10 border border-purple-500/30 rounded-lg p-4">
-                <h3 className="font-medium mb-3 flex items-center gap-2">
-                  <Zap className="w-4 h-4 text-purple-400" />
-                  AI-Generated Recommendations
-                </h3>
-                <ul className="space-y-2 text-sm text-gray-300">
-                  <li className="flex items-start gap-2">
-                    <span className="text-purple-400 mt-1">•</span>
-                    <span>Enable 2FA on all accounts where credentials were exposed</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-purple-400 mt-1">•</span>
-                    <span>Review privacy settings on social media platforms</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-purple-400 mt-1">•</span>
-                    <span>Consider using unique usernames across platforms to reduce correlation</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-purple-400 mt-1">•</span>
-                    <span>Monitor HaveIBeenPwned for future breaches involving your email</span>
-                  </li>
-                </ul>
-              </div>
+              {results.ai_analysis && results.ai_analysis.risk_assessment && (
+                <div className="mt-6 bg-gradient-to-br from-purple-500/10 to-blue-500/10 border border-purple-500/30 rounded-lg p-4">
+                  <h3 className="font-medium mb-3 flex items-center gap-2">
+                    <Zap className="w-4 h-4 text-purple-400" />
+                    AI Risk Assessment
+                  </h3>
+                  <div className="mb-4">
+                    <p className="text-sm text-purple-300">Overall Risk Level: <span className="font-bold text-lg">{results.ai_analysis.risk_assessment.level}</span></p>
+                    <p className="text-sm text-purple-300">AI Risk Score: <span className="font-bold">{results.ai_analysis.risk_assessment.score}/10</span></p>
+                  </div>
+                  {results.ai_analysis.risk_assessment.factors && results.ai_analysis.risk_assessment.factors.length > 0 && (
+                    <ul className="space-y-2 text-sm text-gray-300">
+                      {results.ai_analysis.risk_assessment.factors.map((factor, idx) => (
+                        <li key={idx} className="flex items-start gap-2">
+                          <span className="text-purple-400 mt-1">•</span>
+                          <span>{factor}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
             </div>
+          </div>
+        )}
+
+        {/* No results in risk tab */}
+        {activeTab === 'risk' && !results && (
+          <div className="bg-black/50 backdrop-blur-sm border border-purple-500/20 rounded-xl p-12 text-center">
+            <Shield className="w-16 h-16 mx-auto mb-4 text-purple-400" />
+            <h3 className="text-xl font-semibold mb-2">No Analysis Data</h3>
+            <p className="text-gray-400 mb-6">Run an analysis in the Multi-Modal Fusion tab first to see risk assessment.</p>
+            <button
+              onClick={() => setActiveTab('multi-modal')}
+              className="px-6 py-3 bg-purple-600 hover:bg-purple-700 rounded-lg font-medium transition-colors"
+            >
+              Go to Analysis Tab
+            </button>
           </div>
         )}
       </div>
@@ -545,6 +774,19 @@ export default function OSINTDashboard() {
         <div className="max-w-7xl mx-auto px-6 text-center text-sm text-purple-300">
           <p>Built for CHAKRAVYUH 1.0 Hackathon | GITA Autonomous College, Bhubaneswar</p>
           <p className="mt-1">Problem Statement ID: GITACVPS001</p>
+          {backendStatus && (
+            <div className="mt-3 flex items-center justify-center gap-4 text-xs">
+              <span>Backend: {backendStatus.status === 'online' ? '✓ Online' : '✗ Offline'}</span>
+              {backendStatus.services && (
+                <>
+                  <span>|</span>
+                  <span>GitHub API: {backendStatus.services.github ? '✓' : '✗'}</span>
+                  <span>AI Service: {backendStatus.ai_service || 'none'}</span>
+                  <span>Image Analysis: {backendStatus.services.image_geolocation ? '✓' : '✗'}</span>
+                </>
+              )}
+            </div>
+          )}
         </div>
       </footer>
     </div>
