@@ -12,6 +12,8 @@ import {
   SiYoutube
 } from 'react-icons/si';
 
+import ChatAssistant from './ChatAssistant';
+
 export default function OSINTDashboard() {
   const [activeTab, setActiveTab] = useState('multi-modal');
   const [targetInput, setTargetInput] = useState('');
@@ -115,8 +117,12 @@ export default function OSINTDashboard() {
       
       addLog('Analysis complete!');
       addLog(`AI Service: ${data.ai_service_used || 'none'}`);
-      addLog(`Platforms found: ${data.risk_score.platforms}`);
-      addLog(`Risk level: ${data.risk_score.level}`);
+    
+    // FIX: Check if risk_assessment exists and has the platforms property
+    if (data.risk_assessment && data.risk_assessment.risk_score) {
+      addLog(`Platforms found: ${data.risk_assessment.risk_score.platforms || 0}`);
+      addLog(`Risk level: ${data.risk_assessment.risk_score.level || 'Unknown'}`);
+      }
       
       setResults(data);
       
@@ -353,36 +359,52 @@ export default function OSINTDashboard() {
               {/* Results */}
               {results && (
                 <div className="mt-6 space-y-4">
+                  {/* Stats Cards - ALL 4 CARDS */}
                   <div className="grid grid-cols-4 gap-4">
+                    {/* Card 1: Risk Score */}
                     <div className="bg-gradient-to-br from-red-500/20 to-red-600/10 border border-red-500/30 rounded-lg p-4">
                       <div className="flex items-center justify-between mb-2">
                         <AlertTriangle className="w-5 h-5 text-red-400" />
-                        <span className="text-2xl font-bold">{results.risk_score.risk}</span>
+                        <span className="text-2xl font-bold">
+                        {results.risk_assessment?.risk_score?.risk || '0'}
+                        </span>
                       </div>
                       <p className="text-sm text-red-300">Risk Score</p>
                     </div>
-                    <div className="bg-gradient-to-br from-blue-500/20 to-blue-600/10 border border-blue-500/30 rounded-lg p-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <Eye className="w-5 h-5 text-blue-400" />
-                        <span className="text-2xl font-bold">{results.risk_score.exposures}</span>
-                      </div>
-                      <p className="text-sm text-blue-300">Exposures Found</p>
-                    </div>
-                    <div className="bg-gradient-to-br from-purple-500/20 to-purple-600/10 border border-purple-500/30 rounded-lg p-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <Globe className="w-5 h-5 text-purple-400" />
-                        <span className="text-2xl font-bold">{results.risk_score.platforms}</span>
-                      </div>
-                      <p className="text-sm text-purple-300">Platforms</p>
-                    </div>
-                    <div className="bg-gradient-to-br from-orange-500/20 to-orange-600/10 border border-orange-500/30 rounded-lg p-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <Zap className="w-5 h-5 text-orange-400" />
-                        <span className="text-2xl font-bold">{results.risk_score.critical}</span>
-                      </div>
-                      <p className="text-sm text-orange-300">Critical Issues</p>
-                    </div>
+
+                  {/* Card 2: Exposures */}
+                  <div className="bg-gradient-to-br from-blue-500/20 to-blue-600/10 border border-blue-500/30 rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <Eye className="w-5 h-5 text-blue-400" />
+                      <span className="text-2xl font-bold">
+                      {results.risk_assessment?.risk_score?.exposures || '0'}
+                      </span>
+                   </div>
+                   <p className="text-sm text-blue-300">Exposures Found</p>
                   </div>
+
+                  {/* Card 3: Platforms */}
+                  <div className="bg-gradient-to-br from-purple-500/20 to-purple-600/10 border border-purple-500/30 rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <Globe className="w-5 h-5 text-purple-400" />
+                      <span className="text-2xl font-bold">
+                      {results.risk_assessment?.risk_score?.platforms || '0'}
+                      </span>
+                    </div>
+                    <p className="text-sm text-purple-300">Platforms</p>
+                  </div>
+
+                  {/* Card 4: Critical Issues */}
+                  <div className="bg-gradient-to-br from-orange-500/20 to-orange-600/10 border border-orange-500/30 rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <Zap className="w-5 h-5 text-orange-400" />
+                      <span className="text-2xl font-bold">
+                      {results.risk_assessment?.risk_score?.critical || '0'}
+                      </span>
+                    </div>
+                    <p className="text-sm text-orange-300">Critical Issues</p>
+                  </div>
+                </div>
 
                   {/* Detailed Findings */}
                   <div className="bg-black/60 border border-purple-500/20 rounded-lg p-4">
@@ -768,6 +790,13 @@ export default function OSINTDashboard() {
           </div>
         )}
       </div>
+
+      {/* Chat Assistant */}
+      <ChatAssistant 
+        backendStatus={backendStatus}
+        currentTab={activeTab}
+        analysisResults={results}
+      />
 
       {/* Footer */}
       <footer className="relative mt-12 border-t border-purple-500/20 bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 backdrop-blur-sm py-6">
