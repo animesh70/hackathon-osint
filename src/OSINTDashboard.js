@@ -12,6 +12,8 @@ import {
   SiYoutube
 } from 'react-icons/si';
 
+import ChatAssistant from './ChatAssistant';
+
 export default function OSINTDashboard() {
   const [activeTab, setActiveTab] = useState('multi-modal');
   const [targetInput, setTargetInput] = useState('');
@@ -768,6 +770,13 @@ export default function OSINTDashboard() {
           </div>
         )}
       </div>
+
+      {/* Chat Assistant - Add this right before the Footer */}
+      <ChatAssistant 
+        backendStatus={backendStatus}
+        currentTab={activeTab}
+        analysisResults={results}
+      />
 
       {/* Footer */}
       <footer className="relative mt-12 border-t border-purple-500/20 bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 backdrop-blur-sm py-6">
