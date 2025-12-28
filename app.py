@@ -1628,25 +1628,14 @@ def analyze_image():
         
         print(f"Analyzing image with {AI_SERVICE or 'no AI service'}...")
         vision_analysis = {}
-        
-        # Check if AI service is available before calling
-        if AI_SERVICE and AI_SERVICE in ['groq', 'gemini', 'anthropic']:
-            try:
-                analyzer = AIAnalyzer(AI_SERVICE)
-                vision_analysis = analyzer.analyze_image_for_geolocation(temp_file.name, exif_data)
-            except Exception as e:
-                print(f"AI analysis error: {e}")
-                vision_analysis = {
-                    'error': f'AI analysis failed: {str(e)}',
-                    'confidence': 0,
-                    'location_estimate': 'Unknown - AI analysis unavailable'
-                }
+        if AI_SERVICE:
+            analyzer = AIAnalyzer(AI_SERVICE)
+            vision_analysis = analyzer.analyze_image_for_geolocation(temp_file.name, exif_data)
         else:
             vision_analysis = {
-                'error': 'No AI API key configured or AI service does not support image analysis',
+                'error': 'No AI API key configured',
                 'confidence': 0,
-                'location_estimate': 'Unknown - AI required for location estimation',
-                'analysis': 'Image analysis requires an AI service (Groq, Gemini, or Anthropic) to be configured.'
+                'location_estimate': 'Unknown'
             }
         
         final_coordinates = None
@@ -1681,13 +1670,7 @@ def analyze_image():
         return jsonify(response), 200
         
     except Exception as e:
-        print(f"Image analysis error: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({
-            'error': str(e),
-            'message': 'Image analysis failed. Please check if the file is a valid image.'
-        }), 500
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/geolocation/video', methods=['POST'])
