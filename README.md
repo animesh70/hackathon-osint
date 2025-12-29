@@ -70,7 +70,6 @@ HIBP_API_KEY=your_hibp_api_key_here
 ```bash
 # Terminal 1 - Main OSINT API (port 5000)
 python app.py
-
 ```
 
 ### 3. Frontend Setup
