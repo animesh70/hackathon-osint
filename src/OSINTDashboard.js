@@ -36,6 +36,14 @@ export default function OSINTDashboard() {
   const [uploadedFile, setUploadedFile] = useState(null);
   const [geoResults, setGeoResults] = useState(null);
   const [geoAnalyzing, setGeoAnalyzing] = useState(false);
+  const [backgroundTheme, setBackgroundTheme] = useState('Dark Mode');
+
+  const backgrounds = {
+    'Dark Mode': 'from-black/50 to-black/30',
+    'Light Mode': 'from-white/50 to-gray-200/30',
+    'Deep Sea': 'from-blue-900 to-cyan-900',
+    'Crimson': 'from-red-900 to-pink-800'
+  };
 
   const BACKEND_URL = 'http://localhost:5000';
 
@@ -202,7 +210,7 @@ export default function OSINTDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-white">
+    <div className={`min-h-screen bg-gradient-to-br ${backgrounds[backgroundTheme]} text-white transition-colors duration-500`}>
       {/* Grain overlay */}
       <div className="fixed inset-0 pointer-events-none opacity-[0.015]" style={{
         backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")`,
@@ -776,6 +784,8 @@ export default function OSINTDashboard() {
         backendStatus={backendStatus}
         currentTab={activeTab}
         analysisResults={results}
+        backgroundTheme={backgroundTheme}
+        setBackgroundTheme={setBackgroundTheme}
       />
 
       {/* Footer */}

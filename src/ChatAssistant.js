@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { MessageCircle, X, Send, Minimize2, Maximize2, Settings, User } from 'lucide-react';
 
-const ChatAssistant = ({ backendStatus, currentTab, analysisResults }) => {
+// HERE ADDED - Added backgroundTheme and setBackgroundTheme as props
+const ChatAssistant = ({ backendStatus, currentTab, analysisResults, backgroundTheme, setBackgroundTheme }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
   const [messages, setMessages] = useState([]);
@@ -10,11 +11,11 @@ const ChatAssistant = ({ backendStatus, currentTab, analysisResults }) => {
   const [selectedAssistant, setSelectedAssistant] = useState('sparke'); // 'sparke' or 'eve'
   const [showSettings, setShowSettings] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  // HERE REMOVED - Removed local backgroundTheme state (now using prop from parent)
   
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
 
-  // Assistant configurations
   const assistants = {
     sparke: {
       name: 'Sparke',
@@ -30,6 +31,13 @@ const ChatAssistant = ({ backendStatus, currentTab, analysisResults }) => {
       greeting: 'Hi, I am Eve! How can I help you today?',
       color: 'from-purple-500 to-pink-500'
     }
+  };
+
+  const backgrounds = {
+    'Dark Mode': 'from-black/50 to-black/30',
+    'Light Mode': 'from-white/50 to-gray-200/30',
+    'Deep Sea': 'from-blue-900 to-cyan-900',
+    'Crimson': 'from-red-900 to-pink-800'
   };
 
   const currentAssistant = assistants[selectedAssistant];
@@ -293,6 +301,13 @@ Additional shortcuts will be indicated throughout the interface.`,
   const generateResponse = (query) => {
     const lowerQuery = query.toLowerCase().trim();
 
+    if (lowerQuery.includes('change background') || lowerQuery.includes('background')) {
+      return {
+        content: 'Sure! Please choose one of the following backgrounds:',
+        suggestions: ['Dark Mode', 'Light Mode', 'Deep Sea', 'Crimson']
+      };
+    }
+
     // Context-aware responses
     if (backendStatus?.status === 'offline' && (lowerQuery.includes('not working') || lowerQuery.includes('offline') || lowerQuery.includes('error'))) {
       return knowledgeBase.responses['backend offline'];
@@ -384,7 +399,20 @@ Could you please rephrase your question or select from the suggestions below?`,
     };
   };
 
+  // HERE ADDED - Using setBackgroundTheme from props to update parent state
   const handleSuggestionClick = (suggestion) => {
+    if (backgrounds[suggestion]) {
+      setBackgroundTheme(suggestion); // change background using parent's setState
+      setMessages(prev => [...prev, {
+        id: Date.now(),
+        type: 'ai',
+        content: `Background changed to ${suggestion}!`,
+        timestamp: new Date()
+      }]);
+      return; // do not send as normal message
+    }
+
+    // Otherwise, treat as normal input
     setInputValue(suggestion);
     setTimeout(() => handleSendMessage(), 100);
   };
@@ -403,8 +431,9 @@ Could you please rephrase your question or select from the suggestions below?`,
   };
 
   const formatTime = (date) => {
-    return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-  };
+  if (!date) return ''; // or return '--:--' if you want a placeholder
+  return new Date(date).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+};
 
   if (!isOpen) {
     return (
