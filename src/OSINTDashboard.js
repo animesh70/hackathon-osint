@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Upload, MapPin, Shield, AlertTriangle, Globe, Image, FileText, Activity, Eye, Target, Zap, CheckCircle, XCircle } from 'lucide-react';
+import SkeletonCard from "./SkeletonCard";
 
 import {
   SiGithub,
@@ -15,6 +16,7 @@ import {
 import ChatAssistant from './ChatAssistant';
 
 export default function OSINTDashboard() {
+  const [viewMode, setViewMode] = useState("user");
   const [activeTab, setActiveTab] = useState('multi-modal');
   const [targetInput, setTargetInput] = useState('');
   const [analyzing, setAnalyzing] = useState(false);
@@ -31,19 +33,54 @@ export default function OSINTDashboard() {
     tiktok: false,
     youtube: false
   });
-  
+
+  const [backgroundTheme, setBackgroundTheme] = useState('Dark Mode');
+
+const backgrounds = {
+  'Dark Mode': 'from-black/50 to-black/30',
+  'Light Mode': 'from-white/50 to-wh-200/30',
+  'Deep Sea': 'from-blue-900 to-cyan-900',
+  'Crimson': 'from-red-900 to-pink-800'
+};
+
+
+
+
+ const fusion = results?.multi_modal_fusion
+  ? {
+      ...results.multi_modal_fusion,
+      verified_platforms: results.multi_modal_fusion.verified_platforms.filter(
+        p => selectedPlatforms[p]
+      ),
+      heuristic_platforms: results.multi_modal_fusion.heuristic_platforms.filter(
+        p => selectedPlatforms[p]
+      )
+    }
+  : {
+  identity_confidence: 0,
+  confidence_level: "WEAK",
+  verified_platforms: [],
+  heuristic_platforms: [],
+  key_findings: []
+};
+
+  // 🔗 Platform icon mapping for fusion UI
+const platformIcons = {
+  github: SiGithub,
+  twitter: SiX,
+  x: SiX,
+  linkedin: SiLinkedin,
+  reddit: SiReddit,
+  instagram: SiInstagram,
+  facebook: SiFacebook,
+  tiktok: SiTiktok,
+  youtube: SiYoutube
+};
+
   // Image/Video analysis state
   const [uploadedFile, setUploadedFile] = useState(null);
   const [geoResults, setGeoResults] = useState(null);
   const [geoAnalyzing, setGeoAnalyzing] = useState(false);
-  const [backgroundTheme, setBackgroundTheme] = useState('Dark Mode');
-
-  const backgrounds = {
-    'Dark Mode': 'from-black/50 to-black/30',
-    'Light Mode': 'from-white/50 to-gray-200/30',
-    'Deep Sea': 'from-blue-900 to-cyan-900',
-    'Crimson': 'from-red-900 to-pink-800'
-  };
 
   const BACKEND_URL = 'http://localhost:5000';
 
@@ -75,12 +112,16 @@ export default function OSINTDashboard() {
     setLogs(prev => [...prev, { message, timestamp, type }]);
   };
 
-  const togglePlatform = (platform) => {
-    setSelectedPlatforms(prev => ({
-      ...prev,
-      [platform]: !prev[platform]
-    }));
-  };
+ const togglePlatform = (platform) => {
+  setSelectedPlatforms(prev => ({
+    ...prev,
+    [platform]: !prev[platform]
+  }));
+
+  // 🔒 Prevent stale results from previous selections
+  setResults(null);
+};
+
 
   const handleAnalyze = async () => {
     if (!targetInput.trim()) {
@@ -125,8 +166,9 @@ export default function OSINTDashboard() {
       
       addLog('Analysis complete!');
       addLog(`AI Service: ${data.ai_service_used || 'none'}`);
-      addLog(`Platforms found: ${data.risk_score.platforms}`);
-      addLog(`Risk level: ${data.risk_score.level}`);
+      addLog(`Platforms found: ${data?.risk_score?.platforms ?? 0}`);
+addLog(`Risk level: ${data?.risk_score?.level ?? 'UNKNOWN'}`);
+
       
       setResults(data);
       
@@ -208,9 +250,144 @@ export default function OSINTDashboard() {
       setGeoAnalyzing(false);
     }
   };
+// --- Attacker View sorting logic ---
+const exploitabilityWeight = (risk) => {
+  switch (risk) {
+    case "CRITICAL":
+      return 3;
+    case "MEDIUM":
+      return 2;
+    case "LOW":
+      return 1;
+    default:
+      return 0;
+  }
+};
+// ✅ Platform existence map from backend (MUST be above displayFindings)
+const platformPresence = results?.platform_presence || {};
+
+const displayFindings = (() => {
+  if (!results?.findings) return [];
+
+  // ✅ Remove findings from platforms that do NOT exist
+  const filtered = results.findings.filter(finding => {
+    if (!finding.platforms) return true;
+
+   return finding.platforms
+  .split(",")
+  .some(p => {
+    const key = p.trim().toLowerCase();
+   return selectedPlatforms[key] && platformPresence[key];
+
+  });
+
+  });
+
+   filtered.forEach(finding => {
+    const platforms = finding.platforms?.toLowerCase() || "";
+
+    if (
+      platforms.includes("twitter") ||
+      platforms.includes("instagram") ||
+      platforms.includes("facebook")
+    ) {
+      // Cap heuristic platform risk
+      if (finding.risk !== "CRITICAL") {
+        finding.risk = "LOW";
+      }
+    }
+  });
+
+  // 🔴 DEDUPLICATE FINDINGS (platform + type + value)
+const uniqueMap = new Map();
+
+filtered.forEach(f => {
+  const key = `${f.platforms}-${f.type}-${f.value}`;
+  if (!uniqueMap.has(key)) {
+    uniqueMap.set(key, f);
+  }
+});
+
+const deduped = Array.from(uniqueMap.values());
+
+// 🔵 LIMIT TO MAX 3 FINDINGS PER PLATFORM
+const platformCount = {};
+const limited = [];
+
+for (const f of deduped) {
+  const p = f.platforms;
+  platformCount[p] = (platformCount[p] || 0) + 1;
+
+  if (platformCount[p] <= 3) {
+    limited.push(f);
+  }
+}
+
+
+  
+  if (viewMode === "user") {
+    return deduped;
+  }
+
+  // Attacker view → most exploitable first
+  return [...deduped].sort(
+    (a, b) => exploitabilityWeight(b.risk) - exploitabilityWeight(a.risk)
+  );
+})();
+
+
+// Attacker wording helper (frontend-only)
+const attackerNarrative = (finding) => {
+  if (finding.risk === "CRITICAL") {
+    return "High-value attack surface. Immediate exploitation possible.";
+  }
+
+  if (finding.risk === "MEDIUM") {
+    return "Useful for reconnaissance or social engineering.";
+  }
+
+  return "Low direct impact, but contributes to profiling.";
+};
+
+const exploitTags = (finding) => {
+  if (finding.risk === "CRITICAL") {
+    return ["ACCOUNT TAKEOVER", "PHISHING"];
+  }
+
+  if (finding.risk === "MEDIUM") {
+    return ["RECON", "SOCIAL ENGINEERING"];
+  }
+
+  return ["PROFILING"];
+};
+
+
+ // ================= NORMALIZED RISK SCORE =================
+const riskScore = results?.risk_assessment?.risk_score
+  ? {
+      risk: results.risk_assessment.risk_score.risk ?? 0,
+      exposures: results.risk_assessment.risk_score.exposures ?? 0,
+      platforms: results.risk_assessment.risk_score.platforms ?? 0,
+      critical:
+        results.risk_assessment.risk_breakdown?.critical ??
+        results.findings?.filter(f => f.risk === "CRITICAL").length ??
+        0,
+      factors: results.risk_assessment.risk_score.factors ?? []
+    }
+  : {
+      risk: 0,
+      exposures: 0,
+      platforms: 0,
+      critical: 0,
+      factors: []
+    };
 
   return (
-    <div className={`min-h-screen bg-gradient-to-br ${backgrounds[backgroundTheme]} text-white transition-colors duration-500`}>
+   <div
+  className={`min-h-screen bg-gradient-to-br ${backgrounds[backgroundTheme]} text-white transition-colors duration-500`}
+>
+
+
       {/* Grain overlay */}
       <div className="fixed inset-0 pointer-events-none opacity-[0.015]" style={{
         backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")`,
@@ -224,14 +401,19 @@ export default function OSINTDashboard() {
             <div className="flex items-center gap-3">
               <Target className="w-8 h-8 text-purple-400" />
               <div>
-                <h1 className="text-2xl font-bold">CHAKRAVYUH 1.0</h1>
-                <p className="text-sm text-purple-300">OSINT Intelligence Platform</p>
+                <h1 className="text-2xl font-bold text-white">
+  CHAKRAVYUH 1.0
+</h1>
+<p className="text-sm text-white/80">
+  OSINT Intelligence Platform
+</p>
+
               </div>
             </div>
             <div className="flex items-center gap-4">
               <span className="text-sm text-purple-300">GITA Autonomous College</span>
               <div className={`w-2 h-2 rounded-full ${backendStatus?.status === 'online' ? 'bg-green-400' : 'bg-red-400'} animate-pulse`}></div>
-              <span className="text-sm">{backendStatus?.status === 'online' ? 'Backend Online' : 'Backend Offline'}</span>
+              <span className="text-sm text-white">{backendStatus?.status === 'online' ? 'Backend Online' : 'Backend Offline'}</span>
               {backendStatus?.ai_service && (
                 <span className="text-xs bg-purple-500/20 px-2 py-1 rounded">AI: {backendStatus.ai_service}</span>
               )}
@@ -265,7 +447,13 @@ export default function OSINTDashboard() {
         {/* Multi-Modal Fusion */}
         {activeTab === 'multi-modal' && (
           <div className="space-y-6">
-            <div className="bg-black/50 backdrop-blur-sm border border-purple-500/20 rounded-xl p-6">
+           <div className="
+  bg-black/50
+  backdrop-blur-sm 
+  border border-purple-500/20 
+  rounded-xl p-6
+">
+
               <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
                 <Globe className="w-5 h-5 text-purple-400" />
                 Multi-Modal OSINT Fusion Engine
@@ -281,7 +469,15 @@ export default function OSINTDashboard() {
                       value={targetInput}
                       onChange={(e) => setTargetInput(e.target.value)}
                       placeholder="Enter username, email, or profile URL..."
-                      className="flex-1 bg-black/60 border border-purple-500/30 rounded-lg px-4 py-3 focus:outline-none focus:border-purple-500 placeholder-gray-500"
+                     className="
+  flex-1 
+  bg-black/60 text-white
+  border border-purple-500/30 
+  rounded-lg px-4 py-3 
+  focus:outline-none focus:border-purple-500 
+  placeholder-gray-500
+"
+
                       onKeyPress={(e) => e.key === 'Enter' && handleAnalyze()}
                     />
                     <button
@@ -318,7 +514,15 @@ export default function OSINTDashboard() {
                   ].map((platform) => {
                     const Icon = platform.icon;
                     return (
-                      <label key={platform.name} className="flex items-center gap-2 bg-black/40 p-3 rounded-lg cursor-pointer hover:bg-black/60 transition-colors group">
+               <label
+  key={platform.name}
+  className="
+    flex items-center gap-2 
+    bg-black/40 hover:bg-black/60
+    p-3 rounded-lg cursor-pointer transition-colors group
+  "
+>
+
                         <input 
                           type="checkbox" 
                           checked={selectedPlatforms[platform.key]}
@@ -334,7 +538,13 @@ export default function OSINTDashboard() {
               </div>
 
               {/* Real-Time Logs */}
-              <div className="mt-6 bg-black/70 border border-purple-500/20 rounded-lg p-4 font-mono">
+             <div className="
+  mt-6 
+  bg-black/70
+  border border-purple-500/20 
+  rounded-lg p-4 font-mono
+">
+
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="text-xs font-bold uppercase tracking-widest text-purple-400">
                     Real-time Logs
@@ -361,38 +571,204 @@ export default function OSINTDashboard() {
               </div>
 
               {/* Results */}
-              {results && (
-                <div className="mt-6 space-y-4">
-                  <div className="grid grid-cols-4 gap-4">
+             {analyzing && (
+  <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+    <SkeletonCard />
+    <SkeletonCard />
+    <SkeletonCard />
+    <SkeletonCard />
+  </div>
+)}
+
+{!analyzing && results && (
+  <div className="mt-6 space-y-4">
+ 
+ {/* 🔗 Multi-Modal Fusion Card */}
+{results?.multi_modal_fusion && (
+  <div className="bg-gradient-to-br from-indigo-500/10 to-purple-600/10 border border-purple-500/30 rounded-xl p-5">
+    
+    <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+      <Zap className="w-5 h-5 text-purple-400" />
+      Multi-Modal OSINT Fusion
+    </h3>
+
+    {/* Identity Confidence */}
+    <div className="mb-4">
+      <p className="text-sm text-gray-400 mb-1">Identity Confidence</p>
+      <div className="w-full bg-black/30 rounded-full h-3">
+        <div
+          className="h-3 rounded-full bg-purple-500 transition-all"
+          style={{ width: `${fusion.identity_confidence}%` }}
+
+        />
+      </div>
+      <p className="text-xs text-gray-400 mt-1">
+       {fusion.identity_confidence}% confidence this identity belongs to the same person
+
+      </p>
+    </div>
+
+  
+
+{/* Verified Platforms */}
+<div className="mb-4">
+  <p className="text-sm text-gray-400 mb-1">Verified Platforms</p>
+  <div className="flex flex-wrap gap-3">
+    {fusion.verified_platforms.length > 0 ? (
+      fusion.verified_platforms.map((platform, idx) => {
+        const Icon = platformIcons[platform];
+        return (
+          <div
+            key={idx}
+            className="flex items-center gap-2 px-3 py-1 bg-green-500/20 text-green-300 rounded-full text-xs"
+          >
+            {Icon && <Icon className="w-4 h-4" />}
+            <span className="capitalize">{platform}</span>
+          </div>
+        );
+      })
+    ) : (
+      <span className="text-xs text-gray-500">No verified platforms</span>
+    )}
+  </div>
+</div>
+
+{/* Heuristic Platforms */}
+<div className="mb-4">
+  <p className="text-sm text-gray-400 mb-1">Unverified Signals</p>
+  <div className="flex flex-wrap gap-3">
+    {fusion.heuristic_platforms.length > 0 ? (
+      fusion.heuristic_platforms.map((platform, idx) => {
+        const Icon = platformIcons[platform];
+        return (
+          <div
+            key={idx}
+            className="flex items-center gap-2 px-3 py-1 bg-yellow-500/20 text-yellow-300 rounded-full text-xs"
+          >
+            {Icon && <Icon className="w-4 h-4" />}
+            <span className="capitalize">{platform}</span>
+          </div>
+        );
+      })
+    ) : (
+      <span className="text-xs text-gray-500">No unverified signals</span>
+    )}
+  </div>
+</div>
+
+
+    {/* Key Findings */}
+    <div>
+      <p className="text-sm text-gray-400 mb-1">Key Fusion Findings</p>
+      <ul className="list-disc list-inside text-sm text-gray-300 space-y-1">
+  {fusion.key_findings.length > 0 &&
+    fusion.key_findings.map((finding, idx) => (
+      <li key={idx}>{finding}</li>
+    ))
+  }
+</ul>
+
+    </div>
+
+  </div>
+)}
+
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+
                     <div className="bg-gradient-to-br from-red-500/20 to-red-600/10 border border-red-500/30 rounded-lg p-4">
                       <div className="flex items-center justify-between mb-2">
                         <AlertTriangle className="w-5 h-5 text-red-400" />
-                        <span className="text-2xl font-bold">{results.risk_score.risk}</span>
+                        <span className="text-2xl font-bold">{riskScore.risk}</span>
                       </div>
                       <p className="text-sm text-red-300">Risk Score</p>
                     </div>
                     <div className="bg-gradient-to-br from-blue-500/20 to-blue-600/10 border border-blue-500/30 rounded-lg p-4">
                       <div className="flex items-center justify-between mb-2">
                         <Eye className="w-5 h-5 text-blue-400" />
-                        <span className="text-2xl font-bold">{results.risk_score.exposures}</span>
+                        <span className="text-2xl font-bold">{riskScore.exposures}</span>
                       </div>
                       <p className="text-sm text-blue-300">Exposures Found</p>
                     </div>
                     <div className="bg-gradient-to-br from-purple-500/20 to-purple-600/10 border border-purple-500/30 rounded-lg p-4">
                       <div className="flex items-center justify-between mb-2">
                         <Globe className="w-5 h-5 text-purple-400" />
-                        <span className="text-2xl font-bold">{results.risk_score.platforms}</span>
+                        <span className="text-2xl font-bold">{riskScore.platforms}
+</span>
                       </div>
                       <p className="text-sm text-purple-300">Platforms</p>
                     </div>
                     <div className="bg-gradient-to-br from-orange-500/20 to-orange-600/10 border border-orange-500/30 rounded-lg p-4">
                       <div className="flex items-center justify-between mb-2">
                         <Zap className="w-5 h-5 text-orange-400" />
-                        <span className="text-2xl font-bold">{results.risk_score.critical}</span>
+                        <span className="text-2xl font-bold">{riskScore.critical}</span>
                       </div>
                       <p className="text-sm text-orange-300">Critical Issues</p>
                     </div>
                   </div>
+
+                 {/* 🔗 Discovered Profiles */}
+{results?.profiles
+  ?.filter(p =>
+  selectedPlatforms[p.platform_key] &&
+  p.confidence !== "heuristic"
+)
+
+  .length > 0 && (
+
+  <div className="mb-6 bg-black/50 border border-purple-500/30 rounded-lg p-4">
+    <h3 className="font-semibold mb-3 text-purple-300">
+      Discovered Profiles
+    </h3>
+
+    <div className="space-y-2">
+      {results.profiles
+ .filter(profile =>
+  selectedPlatforms[profile.platform_key] &&
+  profile.confidence !== "nonexistent"
+)
+
+
+  .map((profile, idx) => (
+
+        <a
+          key={idx}
+          href={profile.profile_url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center justify-between p-3 rounded-lg bg-black/40 hover:bg-black/60 transition border border-purple-500/10"
+        >
+          <div>
+           <p className="text-sm font-medium text-purple-300 capitalize flex items-center gap-2">
+  {platformIcons[profile.platform_key] &&
+    React.createElement(platformIcons[profile.platform_key], { className: "w-4 h-4" })}
+  {profile.platform}
+</p>
+
+            <p className="text-sm text-gray-300">
+              @{profile.username}
+            </p>
+          </div>
+
+      <span
+  className={`text-xs px-3 py-1 rounded-full ${
+    profile.confidence === "verified"
+      ? "bg-green-500/20 text-green-300"
+      : profile.confidence === "weak_verified"
+      ? "bg-blue-500/20 text-blue-300"
+      : "bg-yellow-500/20 text-yellow-300"
+  }`}
+>
+  {profile.confidence === "heuristic"
+    ? "unverified"
+    : profile.confidence}
+</span>
+
+        </a>
+      ))}
+    </div>
+  </div>
+)}
+
 
                   {/* Detailed Findings */}
                   <div className="bg-black/60 border border-purple-500/20 rounded-lg p-4">
@@ -401,7 +777,9 @@ export default function OSINTDashboard() {
                       Discovered Intelligence
                     </h3>
                     <div className="space-y-2">
-                      {results.findings.map((finding, idx) => (
+                    {displayFindings.map((finding, idx) => (
+
+
                         <div key={idx} className="flex items-center justify-between p-3 bg-black/40 rounded-lg hover:bg-black/60 transition-colors">
                           <div className="flex-1">
                             <div className="flex items-center gap-3">
@@ -422,8 +800,32 @@ export default function OSINTDashboard() {
                     </div>
                   </div>
 
+                  {/* AI Analysis Summary */}
+{results?.ai_analysis?.summary && (
+  <div className="bg-gradient-to-br from-purple-500/10 to-blue-500/10 border border-purple-500/30 rounded-lg p-4 mt-4">
+    <h3 className="font-medium mb-3 flex items-center gap-2">
+      <Zap className="w-4 h-4 text-purple-400" />
+      AI Analysis Summary
+    </h3>
+
+    <p className="text-sm text-gray-300">
+      {results?.ai_analysis?.summary}
+    </p>
+
+    {(!results?.ai_analysis?.entities ||
+  Object.keys(results.ai_analysis.entities).length === 0) && (
+
+      <p className="mt-2 text-xs text-yellow-400">
+        ℹ️ Add an AI API key to enable semantic entity extraction and correlations.
+      </p>
+    )}
+  </div>
+)}
+
+
                   {/* AI Analysis */}
-                  {results.ai_analysis && results.ai_analysis.summary && (
+                  {results?.ai_analysis?.summary && (
+
                     <div className="bg-gradient-to-br from-purple-500/10 to-blue-500/10 border border-purple-500/30 rounded-lg p-4">
                       <h3 className="font-medium mb-3 flex items-center gap-2">
                         <Zap className="w-4 h-4 text-purple-400" />
@@ -447,7 +849,13 @@ export default function OSINTDashboard() {
         {/* Visual Intelligence */}
         {activeTab === 'visual' && (
           <div className="space-y-6">
-            <div className="bg-black/50 backdrop-blur-sm border border-purple-500/20 rounded-xl p-6">
+            <div className="
+  bg-black/50
+  backdrop-blur-sm 
+  border border-purple-500/20 
+  rounded-xl p-6
+">
+
               <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
                 <Image className="w-5 h-5 text-purple-400" />
                 Visual Intelligence & Geolocation Extraction
@@ -656,27 +1064,98 @@ export default function OSINTDashboard() {
         {/* Risk Assessment */}
         {activeTab === 'risk' && results && (
           <div className="space-y-6">
-            <div className="bg-black/50 backdrop-blur-sm border border-purple-500/20 rounded-xl p-6">
-              <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-                <Shield className="w-5 h-5 text-purple-400" />
-                Exposure Classification & Risk Assessment
-              </h2>
+           <div className="
+  bg-black/50
+  backdrop-blur-sm 
+  border border-purple-500/20 
+  rounded-xl p-6
+">
+
+           <div className="flex items-center justify-between mb-4">
+  <h2 className="text-xl font-semibold flex items-center gap-2">
+    <Shield className="w-5 h-5 text-purple-400" />
+    Exposure Classification & Risk Assessment
+  </h2>
+
+  {/* View Mode Toggle */}
+  <div className="flex bg-black/40 border border-purple-500/30 rounded-lg overflow-hidden">
+    <button
+      onClick={() => setViewMode("user")}
+      className={`px-4 py-1 text-sm transition ${
+        viewMode === "user"
+          ? "bg-purple-600 text-white"
+          : "text-gray-300 hover:bg-black/30"
+      }`}
+    >
+      User View
+    </button>
+
+    <button
+      onClick={() => setViewMode("attacker")}
+      className={`px-4 py-1 text-sm transition ${
+        viewMode === "attacker"
+          ? "bg-red-600 text-white"
+          : "text-gray-300 hover:bg-black/30"
+      }`}
+    >
+      Attacker View
+    </button>
+  </div>
+</div>
+{/* Attacker recon notice (ONLY when no CRITICAL exists) */}
+{viewMode === "attacker" &&
+  !results.findings.some(f => f.risk === "CRITICAL") && (
+    <div className="mb-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3">
+      <p className="text-sm text-yellow-300">
+        No immediate critical exploits detected. Target is suitable for
+        reconnaissance, profiling, and future social engineering.
+      </p>
+    </div>
+)}
+
+<div className="bg-black/60 border border-purple-500/20 rounded-lg p-4 mt-4">
+ <h3 className="text-sm font-semibold mb-1">
+  Exposure Severity (Heuristic)
+</h3>
+
+<p className="text-xs text-gray-400 mb-3">
+  Severity based on discovered signals. May include unverified platforms.
+</p>
+
+  <div className="w-full bg-gray-700 rounded-full h-3">
+    <div
+      className={`h-3 rounded-full transition-all ${
+        riskScore.risk >= 7
+          ? "bg-red-500"
+          : riskScore.risk >= 4
+          ? "bg-orange-500"
+          : "bg-green-500"
+      }`}
+      style={{ width: `${riskScore.risk * 10}%` }}
+    />
+  </div>
+
+  <p className="text-xs text-gray-400 mt-2">
+    Risk Score: {riskScore.risk} / 10
+  </p>
+</div>
 
               {/* Risk Overview */}
               <div className="grid md:grid-cols-3 gap-4 mb-6">
                 <div className="bg-gradient-to-br from-red-500/20 to-red-600/10 border border-red-500/30 rounded-lg p-6 text-center">
                   <AlertTriangle className="w-8 h-8 mx-auto mb-3 text-red-400" />
-                  <p className="text-3xl font-bold mb-2">{results.risk_score.critical}</p>
+                 <p className="text-3xl font-bold mb-2">{results.risk_assessment.risk_breakdown.critical}</p>
+
                   <p className="text-sm text-red-300">Critical Exposures</p>
                 </div>
                 <div className="bg-gradient-to-br from-orange-500/20 to-orange-600/10 border border-orange-500/30 rounded-lg p-6 text-center">
                   <AlertTriangle className="w-8 h-8 mx-auto mb-3 text-orange-400" />
-                  <p className="text-3xl font-bold mb-2">{results.findings.filter(f => f.risk === 'MEDIUM').length}</p>
+                  <p className="text-3xl font-bold mb-2">{results.risk_assessment.risk_breakdown.medium}</p>
                   <p className="text-sm text-orange-300">Medium Risk</p>
                 </div>
                 <div className="bg-gradient-to-br from-green-500/20 to-green-600/10 border border-green-500/30 rounded-lg p-6 text-center">
                   <Shield className="w-8 h-8 mx-auto mb-3 text-green-400" />
-                  <p className="text-3xl font-bold mb-2">{results.findings.filter(f => f.risk === 'LOW').length}</p>
+                  <p className="text-3xl font-bold mb-2">{results.risk_assessment.risk_breakdown.low}</p>
                   <p className="text-sm text-green-300">Low Risk</p>
                 </div>
               </div>
@@ -685,7 +1164,10 @@ export default function OSINTDashboard() {
               <div className="bg-black/60 border border-purple-500/20 rounded-lg p-4 mb-6">
                 <h3 className="font-semibold mb-3">Risk Factors</h3>
                 <ul className="space-y-2">
-                  {results.risk_score.factors.map((factor, idx) => (
+                 {Array.isArray(riskScore.factors) &&
+                  riskScore.factors.map((factor, idx) => (
+
+
                     <li key={idx} className="text-sm text-gray-300 flex items-start gap-2">
                       <AlertTriangle className="w-4 h-4 text-orange-400 mt-0.5 flex-shrink-0" />
                       <span>{factor}</span>
@@ -696,7 +1178,8 @@ export default function OSINTDashboard() {
 
               {/* Detailed Risk Breakdown */}
               <div className="space-y-3">
-                {results.findings.map((item, idx) => {
+                {displayFindings.map((item, idx) => {
+
                   const riskScore = item.risk === 'CRITICAL' ? 9.5 : item.risk === 'MEDIUM' ? 6.0 : 3.0;
                   return (
                     <div key={idx} className="bg-black/40 border border-purple-500/20 rounded-lg p-4 hover:bg-black/60 transition-colors">
@@ -715,8 +1198,19 @@ export default function OSINTDashboard() {
                             </span>
                             <span className="text-sm font-bold text-white">{riskScore}/10</span>
                           </div>
-                          <p className="text-sm mb-2">{item.value}</p>
-                          <p className="text-xs text-gray-400">Found on: {item.platforms}</p>
+                          <p className="text-sm mb-2">
+  {viewMode === "user"
+    ? item.value
+    : attackerNarrative(item)}
+</p>
+
+                        <p className="text-xs text-gray-400">
+  Found on: {item.platforms}
+  {item.platforms?.toLowerCase().includes("twitter") && (
+    <span className="ml-2 text-yellow-400 text-[10px]">(unverified)</span>
+  )}
+</p>
+
                         </div>
                       </div>
                       <div className="mt-3">
@@ -779,14 +1273,15 @@ export default function OSINTDashboard() {
         )}
       </div>
 
-      {/* Chat Assistant - Add this right before the Footer */}
-      <ChatAssistant 
-        backendStatus={backendStatus}
-        currentTab={activeTab}
-        analysisResults={results}
-        backgroundTheme={backgroundTheme}
-        setBackgroundTheme={setBackgroundTheme}
-      />
+        {/* Chat Assistant - Add this right before the Footer */}
+     <ChatAssistant 
+  backendStatus={backendStatus}
+  currentTab={activeTab}
+  analysisResults={results}
+  backgroundTheme={backgroundTheme}
+  setBackgroundTheme={setBackgroundTheme}
+/>
+
 
       {/* Footer */}
       <footer className="relative mt-12 border-t border-purple-500/20 bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 backdrop-blur-sm py-6">
