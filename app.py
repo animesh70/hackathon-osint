@@ -1,3 +1,4 @@
+
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import requests
@@ -40,6 +41,41 @@ elif ANTHROPIC_API_KEY:
     AI_SERVICE = 'anthropic'
 elif HUGGINGFACE_API_KEY:
     AI_SERVICE = 'huggingface'
+# ==================== PLATFORM DETECTION RULES ====================
+
+PLATFORM_RULES = {
+    "github": {
+        "url": "https://github.com/{}",
+        "success_codes": [200],
+        "confidence": "HIGH",
+        "must_contain": "data-hovercard-type"
+    },
+    "instagram": {
+        "url": "https://www.instagram.com/{}/",
+        "success_codes": [200],
+        "confidence": "MEDIUM",
+        "must_not_contain": "Sorry, this page isn't available"
+    },
+    "twitter": {
+        "url": "https://twitter.com/{}",
+        "success_codes": [200],
+        "confidence": "MEDIUM",
+        "must_not_contain": "This account doesn’t exist"
+    },
+    "reddit": {
+        "url": "https://www.reddit.com/user/{}/about.json",
+        "success_codes": [200],
+        "confidence": "HIGH",
+        "json_key": "name"
+    },
+    "linkedin": {
+        "url": "https://www.linkedin.com/in/{}/",
+        "success_codes": [200],
+        "confidence": "VERY_LOW",
+        "must_contain": "profile-topcard"
+    }
+}
+
 
 
 # ==================== RISK ASSESSMENT SYSTEM ====================
@@ -802,7 +838,6 @@ class RiskAssessmentEngine:
                 'level': assessment.risk_level,
                 'exposures': assessment.total_exposures,
                 'platforms': len(set(p for item in assessment.risk_items for p in item.platforms)),
-                'critical': assessment.critical_count,
                 'factors': assessment.risk_factors
             },
             'risk_breakdown': {
@@ -832,6 +867,53 @@ class RiskAssessmentEngine:
 
 
 # ==================== DATA COLLECTORS ====================
+# ==================== USERNAME ENUMERATION ====================
+
+class UniversalUsernameEnumerator:
+    """
+    Checks if a username exists on supported platforms
+    using HTTP validation (no API keys required).
+    """
+
+    def __init__(self, rules):
+        self.rules = rules
+
+    def check_username(self, username: str) -> dict:
+        results = {}
+
+        for platform, rule in self.rules.items():
+            try:
+                url = rule["url"].format(username)
+
+                response = requests.get(
+                    url,
+                    headers={"User-Agent": "Mozilla/5.0"},
+                    timeout=8
+                )
+                exists = False
+                if response.status_code in rule.get("success_codes", []):
+                    content = response.text.lower()
+                    if "json_key" in rule:
+                       data = response.json()
+                       exists = rule["json_key"] in data.get("data", {})
+                    elif "must_contain" in rule:
+                       exists = rule["must_contain"].lower() in content
+                    elif "must_not_contain" in rule:
+                       exists = rule["must_not_contain"].lower() not in content
+                    else:
+                       exists = True  # fallback
+
+                    results[platform] = {
+                        "exists": exists,
+                        "found": exists,
+                        "profile_url": url if exists else None,
+                        "confidence": rule.get("confidence", "LOW")
+                    }
+               
+            except Exception:
+                results[platform] = {"exists": False}
+
+        return results
 
 class GitHubCollector:
     """Collect data from GitHub API"""
@@ -867,6 +949,7 @@ class GitHubCollector:
             
             return {
                 'found': True,
+                'verification': 'api_verified',
                 'platform': 'GitHub',
                 'profile': {
                     'username': user_data.get('login'),
@@ -912,16 +995,16 @@ class TwitterCollector:
     
     def collect(self, username: str) -> Dict[str, Any]:
         try:
-            return {
-                'found': True,
-                'platform': 'Twitter/X',
-                'profile': {
-                    'username': username,
-                    'note': 'Twitter API access required for full data collection'
-                },
-                'posts': [],
-                'warning': 'Limited data available without Twitter API credentials'
-            }
+           return {
+                 'found': False,
+                 'verification': 'unverified',
+                 'platform': 'Twitter/X',
+                 'profile': {
+                 'username': username
+      },
+                 'warning': 'Twitter API not configured'
+        }
+
         except Exception as e:
             return {'error': str(e), 'found': False}
 
@@ -987,15 +1070,45 @@ class HaveIBeenPwnedCollector:
 
 class LinkedInCollector:
     def collect(self, username: str) -> Dict[str, Any]:
-        return {
-            'found': True,
-            'platform': 'LinkedIn',
-            'profile': {
-                'username': username,
-                'note': 'LinkedIn API access required'
-            },
-            'warning': 'Limited data available'
-        }
+        try:
+            # LinkedIn public profile URL pattern
+            profile_url = f"https://www.linkedin.com/in/{username}"
+
+            headers = {
+                "User-Agent": "Mozilla/5.0 (OSINT Research Tool)"
+            }
+
+            response = requests.head(
+                profile_url,
+                headers=headers,
+                allow_redirects=True,
+                timeout=8
+            )
+
+            # LinkedIn returns 200 or 999 for real profiles
+            if response.status_code in [200, 999]:
+               return {
+                     'found': True,
+                      'verification': 'heuristic',
+                      'platform': 'LinkedIn',
+                      'profile': {
+                       'profile_url': profile_url
+                 }
+                }
+
+
+            return {
+                'found': False,
+                'platform': 'LinkedIn'
+            }
+
+        except Exception as e:
+            return {
+                'found': False,
+                'platform': 'LinkedIn',
+                'error': str(e)
+            }
+
 
 
 class RedditCollector:
@@ -1012,6 +1125,7 @@ class RedditCollector:
             
             return {
                 'found': True,
+                'verification': 'weak_verified',
                 'platform': 'Reddit',
                 'profile': {
                     'username': data.get('name'),
@@ -1533,6 +1647,81 @@ Be thorough and specific in your analysis."""
                 'text_detected': []
             }
 
+def build_multi_modal_fusion(results, platform_presence):
+    # Step 1: Verified platforms (real collected data only)
+    verified_platforms = [
+    platform
+    for platform, data in results.items()
+    if data.get("verification") == "api_verified"
+]
+
+
+    # Step 2: Heuristic platforms (username exists but no verified data)
+    heuristic_platforms = [
+        platform
+        for platform, info in platform_presence.items()
+        if info.get("exists") is True and platform not in verified_platforms
+    ]
+
+    # Step 3: Verified score (strong evidence)
+    verified_score = min(len(verified_platforms) * 30, 60)
+
+    # Step 4: Heuristic score (weak evidence, capped)
+    heuristic_score = min(len(heuristic_platforms) * 2, 6)
+
+    # Step 5: Correlation bonus (ONLY if verified exists)
+    correlation_bonus = 0
+    if len(verified_platforms) >= 2:
+        correlation_bonus += 15
+
+    # ❌ HIBP intentionally ignored (no API key)
+
+    # Step 6: Final identity confidence
+    identity_confidence = verified_score + heuristic_score + correlation_bonus
+
+    # Hard safety rule
+    if verified_score == 0:
+        identity_confidence = min(identity_confidence, 20)
+
+    identity_confidence = min(identity_confidence, 100)
+
+    # Step 7: Confidence label
+    if identity_confidence >= 70:
+        confidence_level = "HIGH"
+    elif identity_confidence >= 40:
+        confidence_level = "MEDIUM"
+    elif identity_confidence >= 20:
+        confidence_level = "LOW"
+    else:
+        confidence_level = "WEAK"
+
+    # Step 8: Human-readable findings
+    key_findings = []
+
+    if verified_platforms:
+        key_findings.append(
+            f"Verified presence on {len(verified_platforms)} trusted platform(s)"
+        )
+
+    if heuristic_platforms:
+        key_findings.append(
+            f"Username observed on {len(heuristic_platforms)} unverified platform(s)"
+        )
+
+    if correlation_bonus > 0:
+        key_findings.append("Cross-platform correlation increases confidence")
+
+    if not verified_platforms:
+        key_findings.append("No verified platforms found — identity unconfirmed")
+
+    return {
+        "identity_confidence": identity_confidence,
+        "confidence_level": confidence_level,
+        "verified_platforms": verified_platforms,
+        "heuristic_platforms": heuristic_platforms,
+        "key_findings": key_findings
+    }
+
 
 # ==================== API ENDPOINTS ====================
 
@@ -1542,11 +1731,33 @@ def analyze():
     try:
         data = request.get_json()
         target = data.get('target', '')
-        platforms = data.get('platforms', [])
+        selected_platforms = set(data.get('platforms', []))
+ 
         
+     
         if not target:
             return jsonify({'error': 'Target parameter required'}), 400
         
+        # 🔍 Step 3A: Username existence detection 
+        enumerator = UniversalUsernameEnumerator(PLATFORM_RULES)
+        raw_presence = enumerator.check_username(target)
+
+        platform_presence = {
+        p: info for p, info in raw_presence.items()
+        if p in selected_platforms
+        }
+
+        results = {}
+        platform_profiles = {}
+
+
+
+
+        # 🔐 Canonical platform profile store (single source of truth)
+    
+
+       
+
         # Initialize collectors
         github_collector = GitHubCollector(GITHUB_TOKEN)
         twitter_collector = TwitterCollector()
@@ -1554,47 +1765,159 @@ def analyze():
         linkedin_collector = LinkedInCollector()
         reddit_collector = RedditCollector()
         
-        # Collect data from requested platforms
+               # Collect data from requested platforms
         results = {}
         
-        if 'github' in platforms:
-            results['github'] = github_collector.collect(target)
-            time.sleep(0.5)
-        
-        if 'twitter' in platforms or 'x' in platforms:
+        if 'github' in selected_platforms:
+            gh_data = github_collector.collect(target)
+            results['github'] = gh_data
+
+            if gh_data.get("found"):
+               platform_profiles["github"] = {
+                   "exists": True,
+                   "username": gh_data.get("profile", {}).get("username"),
+                   "profile_url": f"https://github.com/{target}",
+                   "confidence": "verified",
+                   "verification": "api_verified"
+        }
+
+
+
+        time.sleep(0.5)
+
+
+        if 'twitter' in selected_platforms or 'x' in selected_platforms:
             results['twitter'] = twitter_collector.collect(target)
             time.sleep(0.5)
+        if 'twitter' in results and results['twitter'].get("found"):
+           platform_profiles["twitter"] = {
+          "exists": True,
+          "username": target,
+          "profile_url": f"https://twitter.com/{target}",
+          "confidence": "unverified",
+          "verification": "unverified"
+    }
+
         
-        if 'linkedin' in platforms:
-            results['linkedin'] = linkedin_collector.collect(target)
-            time.sleep(0.5)
+        if 'linkedin' in selected_platforms:
+           results['linkedin'] = linkedin_collector.collect(target)
+
+           if results['linkedin'].get("found"):
+               platform_profiles["linkedin"] = {
+                   "exists": True,
+                   "username": target,
+                   "profile_url": f"https://www.linkedin.com/in/{target}",
+                   "confidence": "heuristic",
+                   "verification": "heuristic"
+        }
+
         
-        if 'reddit' in platforms:
-            results['reddit'] = reddit_collector.collect(target)
+        if 'reddit' in selected_platforms:
+            rd_data = reddit_collector.collect(target)
+            results['reddit'] = rd_data
+
+            if rd_data.get("found"):
+               platform_profiles["reddit"] = {
+                   "exists": True,
+                   "username": rd_data.get("profile", {}).get("username"),
+                   "profile_url": f"https://www.reddit.com/user/{target}",
+                   "confidence": "weak_verified",
+                   "verification": "weak_verified"
+               }
+
             time.sleep(0.5)
+
         
         # Check for breaches if target looks like email
         if '@' in target:
             results['haveibeenpwned'] = hibp_collector.collect(target)
             time.sleep(0.5)
-        
+
+
+# 🔁 Promote enumerator-only platforms (not collected, but exist)
+        for platform, info in platform_presence.items():
+         if platform not in results and info.get("exists") is True:
+           results[platform] = {
+             "found": True,
+            "verification": "heuristic",
+            "platform": platform.capitalize(),
+            "profile": {
+                "username": target,
+                "profile_url": info.get("profile_url")
+            }
+        }
+
+        platform_profiles[platform] = {
+            "exists": True,
+            "username": target,
+            "profile_url": info.get("profile_url"),
+            "confidence": "heuristic",
+            "verification": "heuristic"
+        }
+
+
+     
+
         # Perform comprehensive risk assessment
         print("🔍 Performing risk assessment...")
         risk_engine = RiskAssessmentEngine(AI_SERVICE)
         risk_assessment = risk_engine.assess_risks(results, target)
         risk_report = risk_engine.to_frontend_format(risk_assessment)
-        
+        # 🔗 Multi-Modal OSINT Fusion (AFTER data collection)
+        filtered_presence = {
+         p: info for p, info in platform_presence.items()
+        if p in selected_platforms
+}
+
+        multi_modal_fusion = build_multi_modal_fusion(
+        results=results,
+         platform_presence=filtered_presence
+)
+
+
         # Legacy AI analysis (kept for backward compatibility)
         ai_analysis = {}
         if AI_SERVICE:
             analyzer = AIAnalyzer(AI_SERVICE)
             ai_analysis = analyzer.analyze_data(results, target)
-        
+
+            # 🔐 Ensure AI summary always exists for frontend
+        if not ai_analysis or not ai_analysis.get("summary"):
+            ai_analysis = {
+        "summary": "AI analysis not available. Showing verified OSINT and heuristic fusion results only.",
+        "entities": {},
+        "patterns": [],
+        "correlations": [],
+        "risk_assessment": {
+            "score": 0,
+            "level": "UNKNOWN",
+            "factors": []
+        }
+    }
+
+        # 🔗 Normalize profiles for frontend rendering
+        profiles_list = []
+
+        for platform, info in platform_profiles.items():
+         profiles_list.append({
+        "platform": platform.capitalize(),  # 🔴 UI FRIENDLY
+        "platform_key": platform,            # 🔴 KEEP RAW KEY
+        "username": info.get("username") or target,
+        "profile_url": info.get("profile_url"),
+        "verification": info.get("verification", "heuristic"),
+        "confidence": info.get("confidence", "heuristic")
+    })
+
+
         # Prepare response
         response = {
             'target': target,
             'timestamp': datetime.now().isoformat(),
-            'platforms_searched': platforms,
+            'platforms_searched': list(selected_platforms),
+            'platform_presence': platform_presence,
+            'platform_profiles': platform_profiles,
+            'profiles': profiles_list,
+            'multi_modal_fusion': multi_modal_fusion,
             'ai_service_used': AI_SERVICE or 'none',
             'risk_assessment': risk_report,  # NEW: Comprehensive risk assessment
             'platform_data': results,
