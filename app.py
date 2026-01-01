@@ -1,3 +1,5 @@
+from dotenv import load_dotenv
+load_dotenv()
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import requests
@@ -2192,6 +2194,59 @@ def analyze():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+@app.route('/api/geolocation/image', methods=['POST'])
+def analyze_image_geolocation():
+    try:
+        if 'file' not in request.files:
+            return jsonify({"error": "No file provided"}), 400
+
+        file = request.files['file']
+        if file.filename == "":
+            return jsonify({"error": "Empty filename"}), 400
+
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
+        file.save(temp_file.name)
+
+        # 1️⃣ Try EXIF first
+        exif_data = EXIFExtractor.extract_exif(temp_file.name)
+        if exif_data.get("coordinates"):
+            return jsonify({
+                "coordinates": exif_data["coordinates"],
+                "coordinate_source": "exif",
+                "confidence": 100,
+                "analysis": "GPS data extracted from image metadata",
+                "ai_service_used": AI_SERVICE or "none"
+            }), 200
+
+        # 2️⃣ AI fallback
+        analyzer = AIAnalyzer(AI_SERVICE)
+        ai_result = analyzer.analyze_image_for_geolocation(
+            temp_file.name,
+            exif_data=exif_data
+        )
+
+        return jsonify({
+    "coordinates": ai_result.get("coordinates_estimate"),  # may be None
+    "location_estimate": ai_result.get("location_estimate"),
+    "coordinate_source": "ai_estimation",
+    "confidence": ai_result.get("confidence", 0),
+    "analysis": ai_result.get("analysis", ""),
+    "clues": ai_result.get("primary_clues", []),
+    "landmarks": ai_result.get("landmarks_identified", []),
+    "ai_service_used": AI_SERVICE or "none"
+}), 200
+
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+    finally:
+        try:
+            os.unlink(temp_file.name)
+        except:
+            pass
+
 
 
 
