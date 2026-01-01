@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { MessageCircle, X, Send, Minimize2, Maximize2, Settings, User } from 'lucide-react';
 
 // HERE ADDED - Added backgroundTheme and setBackgroundTheme as props
-const ChatAssistant = ({ backendStatus, currentTab, analysisResults, backgroundTheme, setBackgroundTheme }) => {
+const ChatAssistant = ({ backendStatus, currentTab, analysisResults, backgroundTheme, setBackgroundTheme}) => {
   const [isOpen, setIsOpen] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
   const [messages, setMessages] = useState([]);

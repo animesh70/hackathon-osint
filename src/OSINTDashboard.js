@@ -2,6 +2,8 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Upload, MapPin, Shield, AlertTriangle, Globe, Image, FileText, Activity, Eye, Target, Zap, CheckCircle, XCircle } from 'lucide-react';
 import SkeletonCard from "./SkeletonCard";
+import SnowEffect from './SnowEffect';
+import { Snowflake } from 'lucide-react'; 
 
 import {
    SiGithub,
@@ -36,6 +38,7 @@ export default function OSINTDashboard() {
   });
 
   const [backgroundTheme, setBackgroundTheme] = useState('Dark Mode');
+  const [snowEnabled, setSnowEnabled] = useState(true);
 
 const backgrounds = {
   'Dark Mode': 'from-black/50 to-black/30',
@@ -382,7 +385,8 @@ const riskScore = results?.risk_assessment?.risk_score
    <div
   className={`min-h-screen bg-gradient-to-br ${backgrounds[backgroundTheme]} text-white transition-colors duration-500`}
 >
-
+      {/* Snow Effect */}
+      <SnowEffect intensity={25} enabled={snowEnabled} />
 
       {/* Grain overlay */}
       <div className="fixed inset-0 pointer-events-none opacity-[0.015]" style={{
@@ -1320,12 +1324,12 @@ const riskScore = results?.risk_assessment?.risk_score
       </div>
 
         {/* Chat Assistant - Add this right before the Footer */}
-     <ChatAssistant 
-  backendStatus={backendStatus}
-  currentTab={activeTab}
-  analysisResults={results}
-  backgroundTheme={backgroundTheme}
-  setBackgroundTheme={setBackgroundTheme}
+        <ChatAssistant 
+            backendStatus={backendStatus}
+            currentTab={activeTab}
+            analysisResults={results}
+            backgroundTheme={backgroundTheme}
+            setBackgroundTheme={setBackgroundTheme}
 />
 
 
