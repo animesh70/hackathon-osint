@@ -35,9 +35,17 @@ const ChatAssistant = ({ backendStatus, currentTab, analysisResults, backgroundT
 
   const backgrounds = {
     'Dark Mode': 'from-black/50 to-black/30',
-    'Light Mode': 'from-white/50 to-gray-200/30',
-    'Deep Sea': 'from-blue-900 to-cyan-900',
-    'Crimson': 'from-red-900 to-pink-800'
+    'Light Mode': 'from-white/80 to-gray-200/100',
+    'Mint Breeze': 'from-green-200 via-blue-200 to-green-300',
+    'Sunset Peach': 'from-orange-200 via-pink-200 to-yellow-200',
+    'Misty Blue': 'from-blue-300 via-purple-200 to-blue-400',
+    'Desert Sand': 'from-pink-200 via-yellow-200 to-green-200',
+    'Lavender Dream': 'from-purple-200 via-blue-100 to-pink-200',
+    'Twilight': 'from-purple-900 via-orange-800 to-yellow-700',
+    'Aurora': 'from-purple-600 via-blue-500 to-cyan-400',
+    'Forest Night': 'from-gray-900 via-green-900 to-gray-800',
+    'Deep Night': 'from-indigo-950 via-purple-950 to-black',
+    'Chocolate': 'from-amber-900 via-red-900 to-stone-900'
   };
 
   const currentAssistant = assistants[selectedAssistant];
@@ -237,7 +245,7 @@ Additional shortcuts will be indicated throughout the interface.`,
         type: 'ai',
         content: currentAssistant.greeting,
         timestamp: new Date(),
-        suggestions: ['How to analyze?', 'What is OSINT?', 'Show keyboard shortcuts']
+        suggestions: ['How to analyze?', 'What is OSINT?', 'Show keyboard shortcuts', 'change Background colour']
       };
       setMessages([greeting]);
     }
@@ -304,7 +312,7 @@ Additional shortcuts will be indicated throughout the interface.`,
     if (lowerQuery.includes('change background') || lowerQuery.includes('background')) {
       return {
         content: 'Sure! Please choose one of the following backgrounds:',
-        suggestions: ['Dark Mode', 'Light Mode', 'Deep Sea', 'Crimson']
+        suggestions: ['Dark Mode', 'Light Mode', 'Mint Breeze', 'Sunset Peach', 'Misty Blue', 'Desert Sand', 'Lavender Dream', 'Twilight', 'Aurora', 'Forest Night', 'Deep Night', 'Chocolate']
       };
     }
 

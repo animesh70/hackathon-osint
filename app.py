@@ -1,4 +1,3 @@
-
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import requests
@@ -47,20 +46,7 @@ PLATFORM_RULES = {
     "github": {
         "url": "https://github.com/{}",
         "success_codes": [200],
-        "confidence": "HIGH",
-        "must_contain": "data-hovercard-type"
-    },
-    "instagram": {
-        "url": "https://www.instagram.com/{}/",
-        "success_codes": [200],
-        "confidence": "MEDIUM",
-        "must_not_contain": "Sorry, this page isn't available"
-    },
-    "twitter": {
-        "url": "https://twitter.com/{}",
-        "success_codes": [200],
-        "confidence": "MEDIUM",
-        "must_not_contain": "This account doesn’t exist"
+        "confidence": "HIGH"
     },
     "reddit": {
         "url": "https://www.reddit.com/user/{}/about.json",
@@ -68,12 +54,42 @@ PLATFORM_RULES = {
         "confidence": "HIGH",
         "json_key": "name"
     },
-    "linkedin": {
-        "url": "https://www.linkedin.com/in/{}/",
+    "gitlab": {
+        "url": "https://gitlab.com/{}",
         "success_codes": [200],
-        "confidence": "VERY_LOW",
-        "must_contain": "profile-topcard"
-    }
+        "confidence": "HIGH"
+    },
+    "instagram": {
+    "url": "https://www.instagram.com/{}/",
+    "success_codes": [200],
+    "confidence": "LOW",
+    "must_not_contain": "Sorry, this page isn't available"
+    },
+    "youtube": {
+    "url": "https://www.youtube.com/@{}",
+    "success_codes": [200],
+    "confidence": "LOW",
+    "must_not_contain": "This channel does not exist"
+    },
+    "facebook": {
+    "url": "https://www.facebook.com/{}",
+    "success_codes": [200],
+    "confidence": "LOW",
+    "must_not_contain": "This content isn't available"
+    },
+    "linkedin": {
+    "url": "https://www.linkedin.com/in/{}/",
+    "success_codes": [200],
+    "confidence": "LOW",
+    "must_not_contain": "This page doesn't exist"
+    },
+   "twitter": {
+    "url": "https://x.com/{}",
+    "success_codes": [200],
+    "confidence": "LOW",
+    "must_not_contain": "This account doesn't exist"
+}
+
 }
 
 
@@ -554,6 +570,60 @@ Be thorough but concise. Focus on actionable insights and real security implicat
             'timeline': 'MODERATE',
             'raw_response': response_text
         }
+    # ==================== CONTENT INTELLIGENCE ====================
+
+def extract_content_findings(canonical_profiles, results):
+    """Extract content findings from canonical profiles"""
+    findings = []
+
+    for platform, data in canonical_profiles.items():
+        platform_data = results.get(platform, {})
+        profile = platform_data.get("profile", {})
+        
+        # BIO
+        bio = profile.get("bio") or profile.get("description")
+        if bio:
+            findings.append({
+                "type": "bio",
+                "value": bio[:200],
+                "platforms": platform,
+                "risk": "LOW"
+            })
+
+        # MEDIUM ARTICLES
+        if platform == "medium":
+            for article in platform_data.get("articles", []):
+                if article.get("title"):
+                    findings.append({
+                        "type": "article",
+                        "value": article["title"],
+                        "platforms": "medium",
+                        "risk": "LOW"
+                    })
+
+        # GITHUB REPOS
+        if platform == "github":
+            for repo in platform_data.get("repositories", []):
+                if repo.get("description"):
+                    findings.append({
+                        "type": "repository",
+                        "value": repo["description"][:200],
+                        "platforms": "github",
+                        "risk": "LOW"
+                    })
+
+        # TWITTER POSTS
+        if platform == "twitter":
+           for post in platform_data.get("posts", []):
+                   findings.append({
+                       "type": "tweet",
+                        "value": post,
+                        "platforms": "twitter",
+                       "risk": "LOW"
+        })
+
+
+    return findings
 
 
 class RiskAssessmentEngine:
@@ -988,25 +1058,221 @@ class GitHubCollector:
             }
         except Exception as e:
             return {'error': str(e), 'found': False}
+        
+class GitLabCollector:
+      """Collect data from GitLab (public API, no auth required)"""
 
-
-class TwitterCollector:
-    """Collect data from Twitter/X"""
-    
-    def collect(self, username: str) -> Dict[str, Any]:
+      def collect(self, username: str) -> Dict[str, Any]:
         try:
-           return {
-                 'found': False,
-                 'verification': 'unverified',
-                 'platform': 'Twitter/X',
-                 'profile': {
-                 'username': username
-      },
-                 'warning': 'Twitter API not configured'
-        }
+            # Search user
+            search_url = f"https://gitlab.com/api/v4/users?username={username}"
+            response = requests.get(search_url, timeout=10)
+
+            if response.status_code != 200 or not response.json():
+                return {"found": False}
+
+            user = response.json()[0]
+            user_id = user.get("id")
+
+            # Fetch projects
+            projects_url = f"https://gitlab.com/api/v4/users/{user_id}/projects"
+            projects_resp = requests.get(projects_url, timeout=10)
+            projects = projects_resp.json() if projects_resp.status_code == 200 else []
+
+            return {
+                "found": True,
+                "verification": "api_verified",
+                "platform": "GitLab",
+                "profile": {
+                    "username": user.get("username"),
+                    "name": user.get("name"),
+                    "bio": user.get("bio"),
+                    "location": user.get("location"),
+                    "website": user.get("website_url"),
+                    "created_at": user.get("created_at"),
+                    "profile_url": user.get("web_url")
+                },
+                "projects": [
+                    {
+                        "name": p.get("name"),
+                        "description": p.get("description"),
+                        "stars": p.get("star_count"),
+                        "last_activity": p.get("last_activity_at")
+                    }
+                    for p in projects[:10]
+                ]
+            }
 
         except Exception as e:
-            return {'error': str(e), 'found': False}
+            return {"found": False, "error": str(e)}
+        
+class InstagramCollector:
+    """Lightweight Instagram presence collector (heuristic only)"""
+
+    def collect(self, username: str) -> Dict[str, Any]:
+        try:
+            url = f"https://www.instagram.com/{username}/"
+            headers = {"User-Agent": "Mozilla/5.0"}
+            response = requests.get(url, headers=headers, timeout=10)
+
+            if response.status_code != 200:
+                return {"found": False}
+
+            if "Sorry, this page isn't available" in response.text:
+                return {"found": False}
+
+            return {
+                "found": True,
+                "verification": "weak_verified",
+                "platform": "Instagram",
+                "profile": {
+                    "username": username,
+                    "profile_url": url
+                }
+            }
+
+        except Exception as e:
+            return {"found": False, "error": str(e)}
+        
+class YouTubeCollector:
+    """Lightweight YouTube presence collector (heuristic only)"""
+
+    def collect(self, username: str) -> Dict[str, Any]:
+        try:
+            url = f"https://www.youtube.com/@{username}"
+            headers = {"User-Agent": "Mozilla/5.0"}
+            response = requests.get(url, headers=headers, timeout=10)
+
+            if response.status_code != 200:
+                return {"found": False}
+
+            if "This channel does not exist" in response.text:
+                return {"found": False}
+
+            return {
+                "found": True,
+                "verification": "weak_verified",
+                "platform": "YouTube",
+                "profile": {
+                    "username": username,
+                    "profile_url": url
+                }
+            }
+
+        except Exception as e:
+            return {"found": False, "error": str(e)}
+        
+class FacebookCollector:
+    """Lightweight Facebook presence collector (heuristic only)"""
+
+    def collect(self, username: str) -> Dict[str, Any]:
+        try:
+            url = f"https://www.facebook.com/{username}"
+            headers = {"User-Agent": "Mozilla/5.0"}
+
+            response = requests.get(url, headers=headers, timeout=10)
+
+            if response.status_code != 200:
+                return {"found": False}
+
+            if "This content isn't available" in response.text:
+                return {"found": False}
+
+            return {
+                "found": True,
+                "verification": "weak_verified",
+                "platform": "Facebook",
+                "profile": {
+                    "username": username,
+                    "profile_url": url
+                }
+            }
+
+        except Exception as e:
+            return {"found": False, "error": str(e)}
+        
+class LinkedInCollector:
+    """Lightweight LinkedIn presence collector (heuristic only)"""
+
+    def collect(self, username: str) -> Dict[str, Any]:
+        try:
+            url = f"https://www.linkedin.com/in/{username}/"
+            headers = {
+                "User-Agent": "Mozilla/5.0"
+            }
+
+            response = requests.get(url, headers=headers, timeout=10)
+
+            if response.status_code != 200:
+                return {"found": False}
+
+            if "This page doesn’t exist" in response.text:
+                return {"found": False}
+
+            return {
+                "found": True,
+                "verification": "weak_verified",
+                "platform": "LinkedIn",
+                "profile": {
+                    "username": username,
+                    "profile_url": url
+                }
+            }
+
+        except Exception as e:
+            return {"found": False, "error": str(e)}
+
+
+
+
+        
+class TwitterCollector:
+    """Heuristic Twitter/X collector with recent posts"""
+
+    def collect(self, username: str) -> Dict[str, Any]:
+        try:
+            url = f"https://x.com/{username}"
+            headers = {"User-Agent": "Mozilla/5.0"}
+
+            response = requests.get(url, headers=headers, timeout=10)
+
+            if response.status_code != 200:
+                return {"found": False}
+
+            if "This account doesn’t exist" in response.text:
+                return {"found": False}
+
+            soup = BeautifulSoup(response.text, "html.parser")
+
+            tweets = []
+            for tweet in soup.find_all("article")[:5]:
+                text_blocks = tweet.find_all("div")
+                text = " ".join(
+                    t.get_text(strip=True)
+                    for t in text_blocks
+                    if t.get_text(strip=True)
+                )
+
+                if text:
+                    tweets.append(text[:280])
+
+            return {
+                "found": True,
+                "verification": "weak_verified",
+                "platform": "Twitter",
+                "profile": {
+                    "username": username,
+                    "profile_url": url
+                },
+                "posts": tweets
+            }
+
+        except Exception as e:
+            return {"found": False, "error": str(e)}
+
+
+
+
 
 
 class HaveIBeenPwnedCollector:
@@ -1066,48 +1332,6 @@ class HaveIBeenPwnedCollector:
                 }
         except Exception as e:
             return {'error': str(e), 'found': False}
-
-
-class LinkedInCollector:
-    def collect(self, username: str) -> Dict[str, Any]:
-        try:
-            # LinkedIn public profile URL pattern
-            profile_url = f"https://www.linkedin.com/in/{username}"
-
-            headers = {
-                "User-Agent": "Mozilla/5.0 (OSINT Research Tool)"
-            }
-
-            response = requests.head(
-                profile_url,
-                headers=headers,
-                allow_redirects=True,
-                timeout=8
-            )
-
-            # LinkedIn returns 200 or 999 for real profiles
-            if response.status_code in [200, 999]:
-               return {
-                     'found': True,
-                      'verification': 'heuristic',
-                      'platform': 'LinkedIn',
-                      'profile': {
-                       'profile_url': profile_url
-                 }
-                }
-
-
-            return {
-                'found': False,
-                'platform': 'LinkedIn'
-            }
-
-        except Exception as e:
-            return {
-                'found': False,
-                'platform': 'LinkedIn',
-                'error': str(e)
-            }
 
 
 
@@ -1722,278 +1946,253 @@ def build_multi_modal_fusion(results, platform_presence):
         "key_findings": key_findings
     }
 
+def add_canonical(platform_key, data, profile_url, verification, exists):
+    """
+    Add platform to canonical profiles if username EXISTS,
+    even if collector data is weak or partial
+    """
+    if exists is not True:
+        return None
+
+    return {
+        "platform": platform_key.capitalize(),
+        "platform_key": platform_key,
+        "username": data.get("profile", {}).get("username") if data else "",
+        "profile_url": profile_url,
+        "verification": verification,
+        "exists": True
+    }
+
+
+
+
 
 # ==================== API ENDPOINTS ====================
 
 @app.route('/api/analyze', methods=['POST'])
 def analyze():
-    """Main endpoint for OSINT analysis with AI-powered risk assessment"""
+    """Main endpoint for OSINT analysis"""
     try:
         data = request.get_json()
         target = data.get('target', '')
         selected_platforms = set(data.get('platforms', []))
- 
-        
-     
+
         if not target:
             return jsonify({'error': 'Target parameter required'}), 400
-        
-        # 🔍 Step 3A: Username existence detection 
+
+        # 🔍 Username existence detection
         enumerator = UniversalUsernameEnumerator(PLATFORM_RULES)
         raw_presence = enumerator.check_username(target)
 
         platform_presence = {
-        p: info for p, info in raw_presence.items()
-        if p in selected_platforms
+            p: info for p, info in raw_presence.items()
+            if p in selected_platforms
         }
-
-        results = {}
-        platform_profiles = {}
-
-
-
-
-        # 🔐 Canonical platform profile store (single source of truth)
-    
-
-       
 
         # Initialize collectors
         github_collector = GitHubCollector(GITHUB_TOKEN)
+        gitlab_collector = GitLabCollector()
+        reddit_collector = RedditCollector()
+        instagram_collector = InstagramCollector()
+        youtube_collector = YouTubeCollector()
+        facebook_collector = FacebookCollector()
+        linkedin_collector = LinkedInCollector()
         twitter_collector = TwitterCollector()
         hibp_collector = HaveIBeenPwnedCollector(HIBP_API_KEY)
-        linkedin_collector = LinkedInCollector()
-        reddit_collector = RedditCollector()
-        
-               # Collect data from requested platforms
+
         results = {}
-        
+        canonical_profiles = {}
+
+        # -------- COLLECTORS --------
+
         if 'github' in selected_platforms:
             gh_data = github_collector.collect(target)
             results['github'] = gh_data
+            cp = add_canonical(
+                "github",
+                gh_data,
+                f"https://github.com/{target}",
+                gh_data.get("verification", "weak_verified"),
+                platform_presence.get("github", {}).get("exists", False)
+            )
+            if cp:
+                canonical_profiles["github"] = cp
 
-            if gh_data.get("found"):
-               platform_profiles["github"] = {
-                   "exists": True,
-                   "username": gh_data.get("profile", {}).get("username"),
-                   "profile_url": f"https://github.com/{target}",
-                   "confidence": "verified",
-                   "verification": "api_verified"
-        }
+        if 'gitlab' in selected_platforms:
+            gl_data = gitlab_collector.collect(target)
+            results['gitlab'] = gl_data
+            cp = add_canonical(
+                "gitlab",
+                gl_data,
+                gl_data.get("profile", {}).get("profile_url"),
+                gl_data.get("verification", "weak_verified"),
+                platform_presence.get("gitlab", {}).get("exists", False)
+            )
+            if cp:
+                canonical_profiles["gitlab"] = cp
 
-
-
-        time.sleep(0.5)
-
-
-        if 'twitter' in selected_platforms or 'x' in selected_platforms:
-            results['twitter'] = twitter_collector.collect(target)
-            time.sleep(0.5)
-        if 'twitter' in results and results['twitter'].get("found"):
-           platform_profiles["twitter"] = {
-          "exists": True,
-          "username": target,
-          "profile_url": f"https://twitter.com/{target}",
-          "confidence": "unverified",
-          "verification": "unverified"
-    }
-
-        
-        if 'linkedin' in selected_platforms:
-           results['linkedin'] = linkedin_collector.collect(target)
-
-           if results['linkedin'].get("found"):
-               platform_profiles["linkedin"] = {
-                   "exists": True,
-                   "username": target,
-                   "profile_url": f"https://www.linkedin.com/in/{target}",
-                   "confidence": "heuristic",
-                   "verification": "heuristic"
-        }
-
-        
         if 'reddit' in selected_platforms:
             rd_data = reddit_collector.collect(target)
             results['reddit'] = rd_data
+            cp = add_canonical(
+                "reddit",
+                rd_data,
+                f"https://www.reddit.com/user/{target}",
+                rd_data.get("verification", "weak_verified"),
+                rd_data.get("found", False)
+            )
+            if cp:
+                canonical_profiles["reddit"] = cp
 
-            if rd_data.get("found"):
-               platform_profiles["reddit"] = {
-                   "exists": True,
-                   "username": rd_data.get("profile", {}).get("username"),
-                   "profile_url": f"https://www.reddit.com/user/{target}",
-                   "confidence": "weak_verified",
-                   "verification": "weak_verified"
-               }
+        if 'instagram' in selected_platforms:
+            ig_data = instagram_collector.collect(target)
+            results['instagram'] = ig_data
 
-            time.sleep(0.5)
+            cp = add_canonical(
+                "instagram",
+                ig_data,
+                f"https://www.instagram.com/{target}/",
+                "weak_verified",
+                platform_presence.get("instagram", {}).get("exists", False)
+            )
+            if cp:
+               canonical_profiles["instagram"] = cp
 
-        
-        # Check for breaches if target looks like email
+        if 'youtube' in selected_platforms:
+            yt_data = youtube_collector.collect(target)
+            results['youtube'] = yt_data
+
+            cp = add_canonical(
+                 "youtube",
+                 yt_data,
+                 f"https://www.youtube.com/@{target}",
+                 "weak_verified",
+                 platform_presence.get("youtube", {}).get("exists", False)
+    )
+            if cp:
+               canonical_profiles["youtube"] = cp
+
+        if 'facebook' in selected_platforms:
+            fb_data = facebook_collector.collect(target)
+            results['facebook'] = fb_data
+
+            cp = add_canonical(
+                "facebook",
+                 fb_data,
+                 f"https://www.facebook.com/{target}",
+                 "weak_verified",
+                  platform_presence.get("facebook", {}).get("exists", False)
+    )
+
+        if cp:
+           canonical_profiles["facebook"] = cp
+
+        if 'linkedin' in selected_platforms:
+            li_data = linkedin_collector.collect(target)
+            results['linkedin'] = li_data
+
+            cp = add_canonical(
+                "linkedin",
+                li_data,
+                f"https://www.linkedin.com/in/{target}/",
+                "weak_verified",
+                platform_presence.get("linkedin", {}).get("exists", False)
+            )
+
+        if cp:
+            canonical_profiles["linkedin"] = cp
+    
+
+
+
+
+
+
+        if 'twitter' in selected_platforms:
+           tw_data = twitter_collector.collect(target)
+           results['twitter'] = tw_data
+
+           cp = add_canonical(
+           "twitter",
+           tw_data,
+            f"https://x.com/{target}",
+            "weak_verified",
+         platform_presence.get("twitter", {}).get("exists", False)
+    )
+
+        if cp:
+            canonical_profiles["twitter"] = cp
+
+        # Breach check
         if '@' in target:
             results['haveibeenpwned'] = hibp_collector.collect(target)
-            time.sleep(0.5)
 
-
-# 🔁 Promote enumerator-only platforms (not collected, but exist)
-        for platform, info in platform_presence.items():
-         if platform not in results and info.get("exists") is True:
-           results[platform] = {
-             "found": True,
-            "verification": "heuristic",
-            "platform": platform.capitalize(),
-            "profile": {
-                "username": target,
-                "profile_url": info.get("profile_url")
-            }
-        }
-
-        platform_profiles[platform] = {
-            "exists": True,
-            "username": target,
-            "profile_url": info.get("profile_url"),
-            "confidence": "heuristic",
-            "verification": "heuristic"
-        }
-
-
-     
-
-        # Perform comprehensive risk assessment
-        print("🔍 Performing risk assessment...")
+        # -------- RISK ASSESSMENT --------
         risk_engine = RiskAssessmentEngine(AI_SERVICE)
-        risk_assessment = risk_engine.assess_risks(results, target)
+        filtered_results = {
+            p: results[p]
+            for p in canonical_profiles
+            if results.get(p, {}).get("found") is True
+        }
+
+        risk_assessment = risk_engine.assess_risks(filtered_results, target)
         risk_report = risk_engine.to_frontend_format(risk_assessment)
-        # 🔗 Multi-Modal OSINT Fusion (AFTER data collection)
-        filtered_presence = {
-         p: info for p, info in platform_presence.items()
-        if p in selected_platforms
-}
 
+        # -------- FUSION --------
         multi_modal_fusion = build_multi_modal_fusion(
-        results=results,
-         platform_presence=filtered_presence
-)
+            results=canonical_profiles,
+            platform_presence=platform_presence
+        )
 
-
-        # Legacy AI analysis (kept for backward compatibility)
+        # -------- AI ANALYSIS --------
         ai_analysis = {}
         if AI_SERVICE:
             analyzer = AIAnalyzer(AI_SERVICE)
             ai_analysis = analyzer.analyze_data(results, target)
 
-            # 🔐 Ensure AI summary always exists for frontend
         if not ai_analysis or not ai_analysis.get("summary"):
             ai_analysis = {
-        "summary": "AI analysis not available. Showing verified OSINT and heuristic fusion results only.",
-        "entities": {},
-        "patterns": [],
-        "correlations": [],
-        "risk_assessment": {
-            "score": 0,
-            "level": "UNKNOWN",
-            "factors": []
-        }
-    }
-
-        # 🔗 Normalize profiles for frontend rendering
-        profiles_list = []
-
-        for platform, info in platform_profiles.items():
-         profiles_list.append({
-        "platform": platform.capitalize(),  # 🔴 UI FRIENDLY
-        "platform_key": platform,            # 🔴 KEEP RAW KEY
-        "username": info.get("username") or target,
-        "profile_url": info.get("profile_url"),
-        "verification": info.get("verification", "heuristic"),
-        "confidence": info.get("confidence", "heuristic")
-    })
-
-
-        # Prepare response
-        response = {
-            'target': target,
-            'timestamp': datetime.now().isoformat(),
-            'platforms_searched': list(selected_platforms),
-            'platform_presence': platform_presence,
-            'platform_profiles': platform_profiles,
-            'profiles': profiles_list,
-            'multi_modal_fusion': multi_modal_fusion,
-            'ai_service_used': AI_SERVICE or 'none',
-            'risk_assessment': risk_report,  # NEW: Comprehensive risk assessment
-            'platform_data': results,
-            'ai_analysis': ai_analysis,  # Legacy analysis
-            'findings': risk_report['risk_items'][:10]  # Top 10 findings
-        }
-        
-        return jsonify(response), 200
-        
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/geolocation/image', methods=['POST'])
-def analyze_image():
-    """Endpoint for image geolocation analysis"""
-    try:
-        if 'file' not in request.files:
-            return jsonify({'error': 'No file provided'}), 400
-        
-        file = request.files['file']
-        
-        if file.filename == '':
-            return jsonify({'error': 'Empty filename'}), 400
-        
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.filename)[1])
-        file.save(temp_file.name)
-        
-        print("Extracting EXIF data...")
-        exif_data = EXIFExtractor.extract_exif(temp_file.name)
-        
-        print(f"Analyzing image with {AI_SERVICE or 'no AI service'}...")
-        vision_analysis = {}
-        if AI_SERVICE:
-            analyzer = AIAnalyzer(AI_SERVICE)
-            vision_analysis = analyzer.analyze_image_for_geolocation(temp_file.name, exif_data)
-        else:
-            vision_analysis = {
-                'error': 'No AI API key configured',
-                'confidence': 0,
-                'location_estimate': 'Unknown'
+                "summary": "AI analysis not available.",
+                "entities": {},
+                "patterns": [],
+                "correlations": [],
+                "risk_assessment": {"score": 0, "level": "UNKNOWN", "factors": []}
             }
-        
-        final_coordinates = None
-        coordinate_source = 'none'
-        
-        if exif_data.get('coordinates'):
-            final_coordinates = exif_data['coordinates']
-            coordinate_source = 'exif'
-        elif vision_analysis.get('coordinates_estimate'):
-            final_coordinates = vision_analysis['coordinates_estimate']
-            coordinate_source = 'ai_estimation'
-        
-        final_confidence = 100 if coordinate_source == 'exif' else vision_analysis.get('confidence', 0)
-        
-        os.unlink(temp_file.name)
-        
+
+        # -------- FINDINGS --------
+        content_findings = extract_content_findings(
+            canonical_profiles=canonical_profiles,
+            results=results
+        )
+
+        profiles_list = [
+            {
+                "platform": v["platform"],
+                "platform_key": k,
+                "username": v["username"],
+                "profile_url": v["profile_url"],
+                "verification": v["verification"],
+                "exists": True
+            }
+            for k, v in canonical_profiles.items()
+        ]
+
         response = {
-            'coordinates': final_coordinates,
-            'coordinate_source': coordinate_source,
-            'confidence': final_confidence,
-            'exif_data': exif_data,
-            'vision_analysis': vision_analysis,
-            'location_estimate': vision_analysis.get('location_estimate', 'Unknown'),
-            'clues': vision_analysis.get('primary_clues', []),
-            'landmarks': vision_analysis.get('landmarks_identified', []),
-            'text_detected': vision_analysis.get('text_detected', []),
-            'analysis': vision_analysis.get('analysis', ''),
-            'ai_service_used': AI_SERVICE or 'none',
-            'timestamp': datetime.now().isoformat()
+            "target": target,
+            "timestamp": datetime.now().isoformat(),
+            "profiles": profiles_list,
+            "platform_presence": platform_presence,
+            "multi_modal_fusion": multi_modal_fusion,
+            "risk_assessment": risk_report,
+            "ai_analysis": ai_analysis,
+            "findings": (risk_report["risk_items"][:10] + content_findings)[:15]
         }
-        
+
         return jsonify(response), 200
-        
+
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({"error": str(e)}), 500
+
 
 
 @app.route('/api/geolocation/video', methods=['POST'])
@@ -2139,3 +2338,4 @@ if __name__ == '__main__':
     print(f"🛡️  Risk Assessment: Enabled with {AI_SERVICE or 'basic scoring'}")
     print(f"📊 Risk Analyzer: {'AI-Enhanced' if AI_SERVICE else 'Rule-Based Only'}")
     app.run(debug=True, port=5000)
+

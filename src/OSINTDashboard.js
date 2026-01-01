@@ -1,16 +1,17 @@
+
 import React, { useState, useEffect } from 'react';
 import { Search, Upload, MapPin, Shield, AlertTriangle, Globe, Image, FileText, Activity, Eye, Target, Zap, CheckCircle, XCircle } from 'lucide-react';
 import SkeletonCard from "./SkeletonCard";
 
 import {
-  SiGithub,
-  SiX,
-  SiLinkedin,
-  SiReddit,
-  SiInstagram,
-  SiFacebook,
-  SiTiktok,
-  SiYoutube
+   SiGithub,
+   SiGitlab,
+   SiX,
+   SiInstagram,
+   SiYoutube,
+   SiFacebook,
+   SiLinkedin,
+   SiReddit
 } from 'react-icons/si';
 
 import ChatAssistant from './ChatAssistant';
@@ -24,57 +25,46 @@ export default function OSINTDashboard() {
   const [logs, setLogs] = useState([]);
   const [backendStatus, setBackendStatus] = useState(null);
   const [selectedPlatforms, setSelectedPlatforms] = useState({
-    github: true,
-    twitter: true,
-    linkedin: true,
-    reddit: true,
-    instagram: false,
-    facebook: false,
-    tiktok: false,
-    youtube: false
+     github: true,
+     gitlab: true,
+     reddit: true,
+     instagram: true,
+     youtube: true,
+     facebook: true,
+     linkedin: true,
+     twitter: true
   });
 
   const [backgroundTheme, setBackgroundTheme] = useState('Dark Mode');
 
 const backgrounds = {
   'Dark Mode': 'from-black/50 to-black/30',
-  'Light Mode': 'from-white/50 to-wh-200/30',
-  'Deep Sea': 'from-blue-900 to-cyan-900',
-  'Crimson': 'from-red-900 to-pink-800'
+  'Light Mode': 'from-white/80 to-gray-200/100',
+  'Mint Breeze': 'from-green-200 via-blue-200 to-green-300',
+  'Sunset Peach': 'from-orange-200 via-pink-200 to-yellow-200',
+  'Misty Blue': 'from-blue-300 via-purple-200 to-blue-400',
+  'Desert Sand': 'from-pink-200 via-yellow-200 to-green-200',
+  'Lavender Dream': 'from-purple-200 via-blue-100 to-pink-200',
+  'Twilight': 'from-purple-900 via-orange-800 to-yellow-700',
+  'Aurora': 'from-purple-600 via-blue-500 to-cyan-400',
+  'Forest Night': 'from-gray-900 via-green-900 to-gray-800',
+  'Deep Night': 'from-indigo-950 via-purple-950 to-black',
+  'Chocolate': 'from-amber-900 via-red-900 to-stone-900'
 };
 
 
 
-
- const fusion = results?.multi_modal_fusion
-  ? {
-      ...results.multi_modal_fusion,
-      verified_platforms: results.multi_modal_fusion.verified_platforms.filter(
-        p => selectedPlatforms[p]
-      ),
-      heuristic_platforms: results.multi_modal_fusion.heuristic_platforms.filter(
-        p => selectedPlatforms[p]
-      )
-    }
-  : {
-  identity_confidence: 0,
-  confidence_level: "WEAK",
-  verified_platforms: [],
-  heuristic_platforms: [],
-  key_findings: []
-};
 
   // 🔗 Platform icon mapping for fusion UI
 const platformIcons = {
   github: SiGithub,
-  twitter: SiX,
-  x: SiX,
-  linkedin: SiLinkedin,
+  gitlab: SiGitlab,
   reddit: SiReddit,
   instagram: SiInstagram,
+  youtube: SiYoutube,
   facebook: SiFacebook,
-  tiktok: SiTiktok,
-  youtube: SiYoutube
+  linkedin: SiLinkedin,
+  twitter: SiX
 };
 
   // Image/Video analysis state
@@ -263,67 +253,73 @@ const exploitabilityWeight = (risk) => {
       return 0;
   }
 };
-// ✅ Platform existence map from backend (MUST be above displayFindings)
-const platformPresence = results?.platform_presence || {};
+
+// ✅ Canonical Discovered Profiles (single source of truth)
+const discoveredProfiles = (results?.profiles || []).filter(
+  profile =>
+    profile.exists === true &&
+    selectedPlatforms[profile.platform_key] &&
+    (
+      profile.verification === "api_verified" ||
+      profile.verification === "weak_verified"
+    )
+);
+
+const fusion = results?.multi_modal_fusion
+  ? {
+      ...results.multi_modal_fusion,
+      verified_platforms: results.multi_modal_fusion.verified_platforms.filter(
+        p =>
+          selectedPlatforms[p] &&
+          discoveredProfiles.some(dp => dp.platform_key === p)
+      ),
+      heuristic_platforms: results.multi_modal_fusion.heuristic_platforms.filter(
+        p =>
+          selectedPlatforms[p] &&
+          !discoveredProfiles.some(dp => dp.platform_key === p)
+      )
+    }
+  : {
+      identity_confidence: 0,
+      confidence_level: "WEAK",
+      verified_platforms: [],
+      heuristic_platforms: [],
+      key_findings: []
+    };
+
+
+// ✅ Platforms confirmed via canonical profiles (SINGLE SOURCE OF TRUTH)
+const allowedPlatforms = new Set(
+  (results?.profiles || [])
+    .filter(p => p.exists === true)
+    .map(p => p.platform_key)
+);
 
 const displayFindings = (() => {
   if (!results?.findings) return [];
 
-  // ✅ Remove findings from platforms that do NOT exist
+ // ✅ Keep findings ONLY if at least one platform is confirmed
   const filtered = results.findings.filter(finding => {
-    if (!finding.platforms) return true;
+    if (!finding.platforms) return false;
 
-   return finding.platforms
-  .split(",")
-  .some(p => {
-    const key = p.trim().toLowerCase();
-   return selectedPlatforms[key] && platformPresence[key];
-
+    return finding.platforms
+      .split(",")
+      .some(p =>
+        allowedPlatforms.has(p.trim().toLowerCase())
+      );
   });
 
-  });
-
-   filtered.forEach(finding => {
-    const platforms = finding.platforms?.toLowerCase() || "";
-
-    if (
-      platforms.includes("twitter") ||
-      platforms.includes("instagram") ||
-      platforms.includes("facebook")
-    ) {
-      // Cap heuristic platform risk
-      if (finding.risk !== "CRITICAL") {
-        finding.risk = "LOW";
-      }
+    // ✅ Deduplicate (platform + type + value)
+  const uniqueMap = new Map();
+  filtered.forEach(f => {
+    const key = `${f.platforms}-${f.type}-${f.value}`;
+    if (!uniqueMap.has(key)) {
+      uniqueMap.set(key, f);
     }
   });
+  const deduped = Array.from(uniqueMap.values());
 
-  // 🔴 DEDUPLICATE FINDINGS (platform + type + value)
-const uniqueMap = new Map();
-
-filtered.forEach(f => {
-  const key = `${f.platforms}-${f.type}-${f.value}`;
-  if (!uniqueMap.has(key)) {
-    uniqueMap.set(key, f);
-  }
-});
-
-const deduped = Array.from(uniqueMap.values());
-
-// 🔵 LIMIT TO MAX 3 FINDINGS PER PLATFORM
-const platformCount = {};
-const limited = [];
-
-for (const f of deduped) {
-  const p = f.platforms;
-  platformCount[p] = (platformCount[p] || 0) + 1;
-
-  if (platformCount[p] <= 3) {
-    limited.push(f);
-  }
-}
-
-
+    
   
   if (viewMode === "user") {
     return deduped;
@@ -334,7 +330,7 @@ for (const f of deduped) {
     (a, b) => exploitabilityWeight(b.risk) - exploitabilityWeight(a.risk)
   );
 })();
-
+ 
 
 // Attacker wording helper (frontend-only)
 const attackerNarrative = (finding) => {
@@ -503,14 +499,14 @@ const riskScore = results?.risk_assessment?.risk_score
                 {/* Data Sources */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   {[
-                    { name: 'GitHub', icon: SiGithub, key: 'github' },
-                    { name: 'Twitter/X', icon: SiX, key: 'twitter' },
-                    { name: 'LinkedIn', icon: SiLinkedin, key: 'linkedin' },
-                    { name: 'Reddit', icon: SiReddit, key: 'reddit' },
-                    { name: 'Instagram', icon: SiInstagram, key: 'instagram' },
-                    { name: 'Facebook', icon: SiFacebook, key: 'facebook' },
-                    { name: 'TikTok', icon: SiTiktok, key: 'tiktok' },
-                    { name: 'YouTube', icon: SiYoutube, key: 'youtube' }
+                     { name: 'GitHub', icon: SiGithub, key: 'github' },
+                     { name: 'GitLab', icon: SiGitlab, key: 'gitlab' },
+                     { name: 'Reddit', icon: SiReddit, key: 'reddit' },
+                     { name: 'Instagram', icon: SiInstagram, key: 'instagram' },
+                     { name: 'YouTube', icon: SiYoutube, key: 'youtube' },
+                     { name: 'Facebook', icon: SiFacebook, key: 'facebook' },
+                     { name: 'LinkedIn', icon: SiLinkedin, key: 'linkedin' },
+                     { name: 'Twitter', icon: SiX, key: 'twitter' }
                   ].map((platform) => {
                     const Icon = platform.icon;
                     return (
@@ -706,30 +702,16 @@ const riskScore = results?.risk_assessment?.risk_score
                     </div>
                   </div>
 
-                 {/* 🔗 Discovered Profiles */}
-{results?.profiles
-  ?.filter(p =>
-  selectedPlatforms[p.platform_key] &&
-  p.confidence !== "heuristic"
-)
+                
 
-  .length > 0 && (
-
+                    {discoveredProfiles.length > 0 && (
   <div className="mb-6 bg-black/50 border border-purple-500/30 rounded-lg p-4">
     <h3 className="font-semibold mb-3 text-purple-300">
       Discovered Profiles
     </h3>
 
     <div className="space-y-2">
-      {results.profiles
- .filter(profile =>
-  selectedPlatforms[profile.platform_key] &&
-  profile.confidence !== "nonexistent"
-)
-
-
-  .map((profile, idx) => (
-
+      {discoveredProfiles.map((profile, idx) => (
         <a
           key={idx}
           href={profile.profile_url}
@@ -738,29 +720,28 @@ const riskScore = results?.risk_assessment?.risk_score
           className="flex items-center justify-between p-3 rounded-lg bg-black/40 hover:bg-black/60 transition border border-purple-500/10"
         >
           <div>
-           <p className="text-sm font-medium text-purple-300 capitalize flex items-center gap-2">
-  {platformIcons[profile.platform_key] &&
-    React.createElement(platformIcons[profile.platform_key], { className: "w-4 h-4" })}
-  {profile.platform}
-</p>
-
+            <p className="text-sm font-medium text-purple-300 capitalize flex items-center gap-2">
+              {platformIcons[profile.platform_key] &&
+                React.createElement(
+                  platformIcons[profile.platform_key],
+                  { className: "w-4 h-4" }
+                )}
+              {profile.platform}
+            </p>
             <p className="text-sm text-gray-300">
               @{profile.username}
             </p>
           </div>
 
-      <span
+          {/* ✅ Verified badge (canonical only) */}
+          <span
   className={`text-xs px-3 py-1 rounded-full ${
-    profile.confidence === "verified"
+    profile.verification === "api_verified"
       ? "bg-green-500/20 text-green-300"
-      : profile.confidence === "weak_verified"
-      ? "bg-blue-500/20 text-blue-300"
       : "bg-yellow-500/20 text-yellow-300"
   }`}
 >
-  {profile.confidence === "heuristic"
-    ? "unverified"
-    : profile.confidence}
+  {profile.verification === "api_verified" ? "verified" : "weak verified"}
 </span>
 
         </a>
@@ -768,6 +749,7 @@ const riskScore = results?.risk_assessment?.risk_score
     </div>
   </div>
 )}
+
 
 
                   {/* Detailed Findings */}
@@ -800,46 +782,110 @@ const riskScore = results?.risk_assessment?.risk_score
                     </div>
                   </div>
 
-                  {/* AI Analysis Summary */}
-{results?.ai_analysis?.summary && (
+{/* AI Analysis Summary */}
+{results?.ai_analysis && (
   <div className="bg-gradient-to-br from-purple-500/10 to-blue-500/10 border border-purple-500/30 rounded-lg p-4 mt-4">
     <h3 className="font-medium mb-3 flex items-center gap-2">
       <Zap className="w-4 h-4 text-purple-400" />
       AI Analysis Summary
     </h3>
 
-    <p className="text-sm text-gray-300">
-      {results?.ai_analysis?.summary}
+    <p className="text-sm text-gray-300 leading-relaxed">
+      {results.ai_analysis.summary || "AI analysis completed. See detailed findings below."}
     </p>
 
-    {(!results?.ai_analysis?.entities ||
-  Object.keys(results.ai_analysis.entities).length === 0) && (
+    {results.ai_analysis.risk_assessment && (
+      <div className="mt-3 p-3 bg-black/40 rounded-lg">
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <p className="text-xs text-purple-300 mb-1">Risk Level</p>
+            <p className="font-bold text-white">{results.ai_analysis.risk_assessment.level}</p>
+          </div>
+          <div>
+            <p className="text-xs text-purple-300 mb-1">Risk Score</p>
+            <p className="font-bold text-white">{results.ai_analysis.risk_assessment.score}/10</p>
+          </div>
+        </div>
+        
+        {results.ai_analysis.risk_assessment.factors && 
+         results.ai_analysis.risk_assessment.factors.length > 0 && (
+          <div className="mt-3">
+            <p className="text-xs text-purple-300 mb-2">Key Risk Factors:</p>
+            <ul className="space-y-1">
+              {results.ai_analysis.risk_assessment.factors.slice(0, 3).map((factor, idx) => (
+                <li key={idx} className="text-xs text-gray-400 flex items-start gap-2">
+                  <span className="text-purple-400">•</span>
+                  <span>{factor}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    )}
 
-      <p className="mt-2 text-xs text-yellow-400">
-        ℹ️ Add an AI API key to enable semantic entity extraction and correlations.
-      </p>
+    {/* Show info if no AI service configured */}
+    {(!results.ai_service_used || results.ai_service_used === 'none') && (
+      <div className="mt-3 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+        <p className="text-xs text-yellow-300 flex items-center gap-2">
+          <AlertTriangle className="w-3 h-3" />
+          💡 Add an AI API key (GROQ_API_KEY, GEMINI_API_KEY, or ANTHROPIC_API_KEY) to your .env file for enhanced semantic analysis with entity extraction, behavioral patterns, and intelligent correlations.
+        </p>
+      </div>
+    )}
+
+    {/* Show entities if available */}
+    {results.ai_analysis.entities && 
+     Object.keys(results.ai_analysis.entities).length > 0 && (
+      <div className="mt-3 p-3 bg-black/40 rounded-lg">
+        <p className="text-xs text-purple-300 mb-2">🎯 Extracted Entities:</p>
+        <div className="flex flex-wrap gap-2">
+          {Object.entries(results.ai_analysis.entities).map(([type, values]) => (
+            Array.isArray(values) && values.length > 0 && (
+              <span key={type} className="text-xs bg-purple-500/20 text-purple-300 px-2 py-1 rounded capitalize">
+                {type}: {values.length}
+              </span>
+            )
+          ))}
+        </div>
+      </div>
+    )}
+
+    {/* Show patterns if available */}
+    {results.ai_analysis.patterns && 
+     results.ai_analysis.patterns.length > 0 && (
+      <div className="mt-3 p-3 bg-black/40 rounded-lg">
+        <p className="text-xs text-purple-300 mb-2">📊 Behavioral Patterns:</p>
+        <ul className="space-y-1">
+          {results.ai_analysis.patterns.slice(0, 3).map((pattern, idx) => (
+            <li key={idx} className="text-xs text-gray-400 flex items-start gap-2">
+              <span className="text-blue-400">▸</span>
+              <span>{pattern}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    )}
+
+    {/* Show correlations if available */}
+    {results.ai_analysis.correlations && 
+     results.ai_analysis.correlations.length > 0 && (
+      <div className="mt-3 p-3 bg-black/40 rounded-lg">
+        <p className="text-xs text-purple-300 mb-2">🔗 Cross-Platform Correlations:</p>
+        <ul className="space-y-1">
+          {results.ai_analysis.correlations.slice(0, 3).map((correlation, idx) => (
+            <li key={idx} className="text-xs text-gray-400 flex items-start gap-2">
+              <span className="text-green-400">✓</span>
+              <span>{correlation}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
     )}
   </div>
 )}
+  
 
-
-                  {/* AI Analysis */}
-                  {results?.ai_analysis?.summary && (
-
-                    <div className="bg-gradient-to-br from-purple-500/10 to-blue-500/10 border border-purple-500/30 rounded-lg p-4">
-                      <h3 className="font-medium mb-3 flex items-center gap-2">
-                        <Zap className="w-4 h-4 text-purple-400" />
-                        AI Analysis Summary
-                      </h3>
-                      <p className="text-sm text-gray-300">{results.ai_analysis.summary}</p>
-                      {results.ai_analysis.risk_assessment && (
-                        <div className="mt-3 p-3 bg-black/40 rounded">
-                          <p className="text-xs text-purple-300 mb-2">Risk Level: <span className="font-bold">{results.ai_analysis.risk_assessment.level}</span></p>
-                          <p className="text-xs text-purple-300">Score: <span className="font-bold">{results.ai_analysis.risk_assessment.score}/10</span></p>
-                        </div>
-                      )}
-                    </div>
-                  )}
                 </div>
               )}
             </div>
