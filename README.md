@@ -185,6 +185,7 @@ hackathon-osint/
 │   ├── SkeletonCard
 │   ├── SnowEffect.js
 │   └── VisualIntelligence.js
+│   ├── SkeletonCard.js
 ├── .env
 ├── app.py
 ├── visual.py
