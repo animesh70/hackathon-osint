@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Search, Upload, MapPin, Shield, AlertTriangle, Globe, Image, FileText, Activity, Eye, Target, Zap, CheckCircle, XCircle } from 'lucide-react';
 import SkeletonCard from "./SkeletonCard";
@@ -17,6 +16,8 @@ import {
 } from 'react-icons/si';
 
 import ChatAssistant from './ChatAssistant';
+import VisualIntelligence from './VisualIntelligence';
+
 
 export default function OSINTDashboard() {
   const [viewMode, setViewMode] = useState("user");
@@ -36,10 +37,10 @@ export default function OSINTDashboard() {
      linkedin: true,
      twitter: true
   });
-
   const [backgroundTheme, setBackgroundTheme] = useState('Dark Mode');
   const [snowEnabled, setSnowEnabled] = useState(true);
-
+  
+  
 const backgrounds = {
   'Dark Mode': 'from-black/50 to-black/30',
   'Light Mode': 'from-white/80 to-gray-200/100',
@@ -70,10 +71,7 @@ const platformIcons = {
   twitter: SiX
 };
 
-  // Image/Video analysis state
-  const [uploadedFile, setUploadedFile] = useState(null);
-  const [geoResults, setGeoResults] = useState(null);
-  const [geoAnalyzing, setGeoAnalyzing] = useState(false);
+ 
 
   const BACKEND_URL = 'http://localhost:5000';
 
@@ -101,9 +99,15 @@ const platformIcons = {
   };
 
   const addLog = (message, type = 'info') => {
-    const timestamp = new Date().toLocaleTimeString();
-    setLogs(prev => [...prev, { message, timestamp, type }]);
-  };
+  const timestamp = new Date().toLocaleTimeString();
+  setLogs(prev => [
+    ...prev,
+    { message, timestamp, type }
+  ]);
+};
+
+
+ 
 
  const togglePlatform = (platform) => {
   setSelectedPlatforms(prev => ({
@@ -157,10 +161,10 @@ const platformIcons = {
 
       const data = await response.json();
       
-      addLog('Analysis complete!');
+      addLog('Analysis complete!', 'success');
       addLog(`AI Service: ${data.ai_service_used || 'none'}`);
-      addLog(`Platforms found: ${data?.risk_score?.platforms ?? 0}`);
-addLog(`Risk level: ${data?.risk_score?.level ?? 'UNKNOWN'}`);
+      addLog(`Platforms found: ${data.risk_assessment?.risk_score?.platforms || 0}`);
+      addLog(`Risk level: ${data.risk_assessment?.risk_score?.level || 'Unknown'}`);
 
       
       setResults(data);
@@ -173,76 +177,12 @@ addLog(`Risk level: ${data?.risk_score?.level ?? 'UNKNOWN'}`);
     }
   };
 
-  const handleFileUpload = (event) => {
-    const file = event.target.files[0];
-    if (file) {
-      setUploadedFile(file);
-      addLog(`File selected: ${file.name}`);
-    }
-  };
 
-  const handleVisualAnalyze = async () => {
-    if (!uploadedFile) {
-      addLog('Please select an image or video file', 'error');
-      return;
-    }
 
-    if (!backendStatus || backendStatus.status === 'offline') {
-      addLog('Backend is offline. Please start the Flask server.', 'error');
-      return;
-    }
 
-    setGeoAnalyzing(true);
-    setGeoResults(null);
-    setLogs([]);
+   
 
-    const isVideo = uploadedFile.type.startsWith('video/');
-    const endpoint = isVideo ? '/api/geolocation/video' : '/api/geolocation/image';
 
-    addLog(`Analyzing ${isVideo ? 'video' : 'image'}: ${uploadedFile.name}`);
-    addLog('Uploading file to backend...');
-
-    try {
-      const formData = new FormData();
-      formData.append('file', uploadedFile);
-      if (isVideo) {
-        formData.append('num_frames', '5');
-      }
-
-      addLog('Processing file...');
-      if (isVideo) {
-        addLog('Extracting frames from video...');
-      } else {
-        addLog('Extracting EXIF metadata...');
-      }
-
-      const response = await fetch(`${BACKEND_URL}${endpoint}`, {
-        method: 'POST',
-        body: formData
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-      
-      addLog('Analysis complete!');
-      addLog(`Coordinate source: ${data.coordinate_source}`);
-      addLog(`Confidence: ${data.confidence}%`);
-      if (data.coordinates) {
-        addLog(`Location: ${data.coordinates.latitude}, ${data.coordinates.longitude}`);
-      }
-      
-      setGeoResults(data);
-      
-    } catch (error) {
-      addLog(`Error: ${error.message}`, 'error');
-      console.error('Visual analysis error:', error);
-    } finally {
-      setGeoAnalyzing(false);
-    }
-  };
 // --- Attacker View sorting logic ---
 const exploitabilityWeight = (risk) => {
   switch (risk) {
@@ -256,6 +196,20 @@ const exploitabilityWeight = (risk) => {
       return 0;
   }
 };
+
+const renderFactor = (f) => {
+  if (typeof f === "string") return f;
+  if (typeof f === "object" && f !== null) {
+    if (f.factor && f.score !== undefined) {
+      return `${f.factor} (score: ${f.score})`;
+    }
+    if (f.factor) {
+      return f.factor;
+    }
+  }
+  return "";
+};
+
 
 // ✅ Canonical Discovered Profiles (single source of truth)
 const discoveredProfiles = (results?.profiles || []).filter(
@@ -385,6 +339,7 @@ const riskScore = results?.risk_assessment?.risk_score
    <div
   className={`min-h-screen bg-gradient-to-br ${backgrounds[backgroundTheme]} text-white transition-colors duration-500`}
 >
+
       {/* Snow Effect */}
       <SnowEffect intensity={25} enabled={snowEnabled} />
 
@@ -660,13 +615,18 @@ const riskScore = results?.risk_assessment?.risk_score
     {/* Key Findings */}
     <div>
       <p className="text-sm text-gray-400 mb-1">Key Fusion Findings</p>
-      <ul className="list-disc list-inside text-sm text-gray-300 space-y-1">
+<ul className="list-disc list-inside text-sm text-gray-300 space-y-1">
   {fusion.key_findings.length > 0 &&
     fusion.key_findings.map((finding, idx) => (
-      <li key={idx}>{finding}</li>
+      <li key={idx}>
+        {typeof finding === "string"
+          ? finding
+          : `${finding.pattern}${finding.type ? ` (${finding.type})` : ""}`}
+      </li>
     ))
   }
 </ul>
+
 
     </div>
 
@@ -819,7 +779,7 @@ const riskScore = results?.risk_assessment?.risk_score
               {results.ai_analysis.risk_assessment.factors.slice(0, 3).map((factor, idx) => (
                 <li key={idx} className="text-xs text-gray-400 flex items-start gap-2">
                   <span className="text-purple-400">•</span>
-                  <span>{factor}</span>
+                  <span>{renderFactor(factor)}</span>
                 </li>
               ))}
             </ul>
@@ -864,7 +824,11 @@ const riskScore = results?.risk_assessment?.risk_score
           {results.ai_analysis.patterns.slice(0, 3).map((pattern, idx) => (
             <li key={idx} className="text-xs text-gray-400 flex items-start gap-2">
               <span className="text-blue-400">▸</span>
-              <span>{pattern}</span>
+                  <span>
+      {typeof pattern === "string"
+        ? pattern
+        : `${pattern.pattern}${pattern.type ? ` (${pattern.type})` : ""}`}
+    </span>
             </li>
           ))}
         </ul>
@@ -880,7 +844,11 @@ const riskScore = results?.risk_assessment?.risk_score
           {results.ai_analysis.correlations.slice(0, 3).map((correlation, idx) => (
             <li key={idx} className="text-xs text-gray-400 flex items-start gap-2">
               <span className="text-green-400">✓</span>
-              <span>{correlation}</span>
+              <span>
+      {typeof correlation === "string"
+        ? correlation
+        : `${correlation.pattern || ""}${correlation.type ? ` (${correlation.type})` : ""}`}
+    </span>
             </li>
           ))}
         </ul>
@@ -897,221 +865,15 @@ const riskScore = results?.risk_assessment?.risk_score
         )}
 
         {/* Visual Intelligence */}
-        {activeTab === 'visual' && (
-          <div className="space-y-6">
-            <div className="
-  bg-black/50
-  backdrop-blur-sm 
-  border border-purple-500/20 
-  rounded-xl p-6
-">
+      {activeTab === 'visual' && (
+  <VisualIntelligence
+    backendStatus={backendStatus}
+    BACKEND_URL={BACKEND_URL}
+  />
+)}
 
-              <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-                <Image className="w-5 h-5 text-purple-400" />
-                Visual Intelligence & Geolocation Extraction
-              </h2>
-              
-              {/* Upload Zone */}
-              <div className="border-2 border-dashed border-purple-500/30 rounded-lg p-12 text-center hover:border-purple-500/60 transition-colors">
-                <Upload className="w-12 h-12 mx-auto mb-4 text-purple-400" />
-                <p className="text-lg mb-2">Drop image or video here</p>
-                <p className="text-sm text-gray-400 mb-4">Supports JPG, PNG, MP4, MOV</p>
-                <input
-                  type="file"
-                  accept="image/*,video/*"
-                  onChange={handleFileUpload}
-                  className="hidden"
-                  id="file-upload"
-                />
-                <label htmlFor="file-upload" className="cursor-pointer">
-                  <span className="inline-block px-6 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg transition-colors">
-                    Browse Files
-                  </span>
-                </label>
-                {uploadedFile && (
-                  <p className="mt-4 text-sm text-green-400">Selected: {uploadedFile.name}</p>
-                )}
-              </div>
-
-              {uploadedFile && (
-                <button
-                  onClick={handleVisualAnalyze}
-                  disabled={geoAnalyzing || backendStatus?.status !== 'online'}
-                  className="mt-4 w-full px-6 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
-                >
-                  {geoAnalyzing ? (
-                    <>
-                      <Activity className="w-4 h-4 animate-spin" />
-                      Analyzing...
-                    </>
-                  ) : (
-                    <>
-                      <Search className="w-4 h-4" />
-                      Analyze for Geolocation
-                    </>
-                  )}
-                </button>
-              )}
-
-              {/* Real-Time Logs */}
-              <div className="mt-6 bg-black/70 border border-purple-500/20 rounded-lg p-4 font-mono">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-xs font-bold uppercase tracking-widest text-purple-400">
-                    Real-time Logs
-                  </h3>
-                  <Activity className={`w-4 h-4 text-purple-400 ${logs.length > 0 ? 'animate-pulse' : ''}`} />
-                </div>
-                <div className="space-y-2 max-h-40 overflow-y-auto">
-                  {logs.map((log, i) => (
-                    <div key={i} className="text-[11px] flex gap-3 animate-in fade-in slide-in-from-left-2">
-                      <span className="text-purple-500/50">
-                        [{log.timestamp}]
-                      </span>
-                      <span className={log.type === 'error' ? 'text-red-400' : log.type === 'success' ? 'text-green-400' : 'text-gray-300'}>
-                        {log.message}
-                      </span>
-                    </div>
-                  ))}
-                  {logs.length === 0 && (
-                    <p className="text-xs text-gray-500 italic">
-                      Awaiting command...
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              {/* Geolocation Results */}
-              {geoResults && (
-                <div className="mt-6 space-y-4">
-                  {geoResults.coordinates && (
-                    <div className="bg-gradient-to-br from-green-500/10 to-green-600/10 border border-green-500/30 rounded-lg p-4">
-                      <h3 className="font-medium mb-3 flex items-center gap-2">
-                        <MapPin className="w-4 h-4 text-green-400" />
-                        Coordinates Extracted
-                      </h3>
-                      <div className="grid md:grid-cols-2 gap-4">
-                        <div>
-                          <p className="text-sm text-gray-300 mb-2">Latitude:</p>
-                          <p className="font-mono text-green-400">{geoResults.coordinates.latitude}°</p>
-                        </div>
-                        <div>
-                          <p className="text-sm text-gray-300 mb-2">Longitude:</p>
-                          <p className="font-mono text-green-400">{geoResults.coordinates.longitude}°</p>
-                        </div>
-                      </div>
-                      <div className="mt-4">
-                        <p className="text-sm text-gray-300 mb-2">Source: <span className="font-medium text-purple-400">{geoResults.coordinate_source}</span></p>
-                        <p className="text-sm text-gray-300 mb-2">Confidence:</p>
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1 bg-black/30 rounded-full h-2">
-                            <div className="bg-green-400 h-2 rounded-full" style={{width: `${geoResults.confidence}%`}}></div>
-                          </div>
-                          <span className="text-sm font-medium">{geoResults.confidence}%</span>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {geoResults.location_estimate && (
-                    <div className="bg-black/60 border border-purple-500/20 rounded-lg p-4">
-                      <h3 className="font-semibold mb-3">Location Estimate</h3>
-                      <p className="text-lg text-purple-300 mb-4">{geoResults.location_estimate}</p>
-                      
-                      {geoResults.analysis && (
-                        <div className="mt-4 p-3 bg-black/40 rounded">
-                          <p className="text-sm text-gray-300">{geoResults.analysis}</p>
-                        </div>
-                      )}
-
-                      {geoResults.clues && geoResults.clues.length > 0 && (
-                        <div className="mt-4">
-                          <p className="text-sm font-medium text-purple-300 mb-2">Key Clues:</p>
-                          <ul className="space-y-1">
-                            {geoResults.clues.map((clue, idx) => (
-                              <li key={idx} className="text-xs text-gray-400 flex items-start gap-2">
-                                <span className="text-purple-400">•</span>
-                                <span>{clue}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-
-                      {geoResults.landmarks && geoResults.landmarks.length > 0 && (
-                        <div className="mt-4">
-                          <p className="text-sm font-medium text-purple-300 mb-2">Landmarks Identified:</p>
-                          <div className="flex flex-wrap gap-2">
-                            {geoResults.landmarks.map((landmark, idx) => (
-                              <span key={idx} className="text-xs bg-purple-500/20 text-purple-300 px-2 py-1 rounded">
-                                {landmark}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {geoResults.exif_data && geoResults.exif_data.has_exif && (
-                    <div className="bg-black/60 border border-purple-500/20 rounded-lg p-4">
-                      <h3 className="font-semibold mb-3">EXIF Metadata</h3>
-                      <div className="grid md:grid-cols-2 gap-4 text-sm">
-                        <div>
-                          <p className="text-purple-300 mb-1">Camera:</p>
-                          <p className="text-gray-300">{geoResults.exif_data.camera.make} {geoResults.exif_data.camera.model}</p>
-                        </div>
-                        <div>
-                          <p className="text-purple-300 mb-1">Date Taken:</p>
-                          <p className="text-gray-300">{geoResults.exif_data.datetime.original}</p>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Analysis Options */}
-              <div className="mt-6 grid grid-cols-2 gap-4">
-                <div className="bg-black/40 border border-purple-500/20 rounded-lg p-4">
-                  <h3 className="font-medium mb-3">EXIF Data Extraction</h3>
-                  <ul className="space-y-2 text-sm text-gray-300">
-                    <li className="flex items-center gap-2">
-                      <MapPin className="w-4 h-4 text-green-400" />
-                      GPS Coordinates
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <Activity className="w-4 h-4 text-blue-400" />
-                      Camera Model & Settings
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <FileText className="w-4 h-4 text-purple-400" />
-                      Timestamp & Date
-                    </li>
-                  </ul>
-                </div>
-                <div className="bg-black/40 border border-purple-500/20 rounded-lg p-4">
-                  <h3 className="font-medium mb-3">AI Visual Analysis</h3>
-                  <ul className="space-y-2 text-sm text-gray-300">
-                    <li className="flex items-center gap-2">
-                      <Eye className="w-4 h-4 text-purple-400" />
-                      Landmark Recognition
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <Globe className="w-4 h-4 text-blue-400" />
-                      Environmental Clues
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <Search className="w-4 h-4 text-green-400" />
-                      Text & Sign Detection
-                    </li>
-                  </ul>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Risk Assessment */}
+  
+          {/* Risk Assessment */}
         {activeTab === 'risk' && results && (
           <div className="space-y-6">
            <div className="
@@ -1214,15 +976,18 @@ const riskScore = results?.risk_assessment?.risk_score
               <div className="bg-black/60 border border-purple-500/20 rounded-lg p-4 mb-6">
                 <h3 className="font-semibold mb-3">Risk Factors</h3>
                 <ul className="space-y-2">
-                 {Array.isArray(riskScore.factors) &&
-                  riskScore.factors.map((factor, idx) => (
+{Array.isArray(riskScore.factors) &&
+  riskScore.factors.map((f, idx) => (
+    <li key={idx} className="text-sm text-gray-300 flex items-start gap-2">
+      <AlertTriangle className="w-4 h-4 text-orange-400 mt-0.5 flex-shrink-0" />
+      <span>
+        {typeof f === "string"
+          ? f
+          : `${f.factor} (score: ${f.score})`}
+      </span>
+    </li>
+))}
 
-
-                    <li key={idx} className="text-sm text-gray-300 flex items-start gap-2">
-                      <AlertTriangle className="w-4 h-4 text-orange-400 mt-0.5 flex-shrink-0" />
-                      <span>{factor}</span>
-                    </li>
-                  ))}
                 </ul>
               </div>
 
@@ -1293,12 +1058,17 @@ const riskScore = results?.risk_assessment?.risk_score
                   </div>
                   {results.ai_analysis.risk_assessment.factors && results.ai_analysis.risk_assessment.factors.length > 0 && (
                     <ul className="space-y-2 text-sm text-gray-300">
-                      {results.ai_analysis.risk_assessment.factors.map((factor, idx) => (
-                        <li key={idx} className="flex items-start gap-2">
-                          <span className="text-purple-400 mt-1">•</span>
-                          <span>{factor}</span>
-                        </li>
-                      ))}
+     {results.ai_analysis.risk_assessment.factors.map((f, idx) => (
+  <li key={idx} className="flex items-start gap-2">
+    <span className="text-purple-400 mt-1">•</span>
+    <span>
+      {typeof f === "string"
+        ? f
+        : `${f.factor} (score: ${f.score})`}
+    </span>
+  </li>
+))}
+
                     </ul>
                   )}
                 </div>
@@ -1323,7 +1093,7 @@ const riskScore = results?.risk_assessment?.risk_score
         )}
       </div>
 
-        {/* Chat Assistant - Add this right before the Footer */}
+         {/* Chat Assistant - Add this right before the Footer */}
         <ChatAssistant 
             backendStatus={backendStatus}
             currentTab={activeTab}

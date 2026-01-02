@@ -1,3 +1,4 @@
+from unittest import result
 from dotenv import load_dotenv
 load_dotenv()
 from flask import Flask, request, jsonify
@@ -6,6 +7,7 @@ import requests
 from bs4 import BeautifulSoup
 import os
 import re
+import traceback
 from datetime import datetime, timedelta
 import time
 from typing import Dict, List, Any, Optional, Tuple
@@ -16,13 +18,18 @@ import tempfile
 from dataclasses import dataclass, asdict
 from enum import Enum
 
-# Image and Video processing
-from PIL import Image
-from PIL.ExifTags import TAGS, GPSTAGS
-import cv2
+load_dotenv()
+from visual import visual_bp
+
+
+
+
 
 app = Flask(__name__)
 CORS(app)
+
+app.register_blueprint(visual_bp)
+
 
 # Configuration
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
@@ -42,6 +49,10 @@ elif ANTHROPIC_API_KEY:
     AI_SERVICE = 'anthropic'
 elif HUGGINGFACE_API_KEY:
     AI_SERVICE = 'huggingface'
+
+    
+
+
 # ==================== PLATFORM DETECTION RULES ====================
 
 PLATFORM_RULES = {
@@ -485,7 +496,7 @@ Be thorough but concise. Focus on actionable insights and real security implicat
             "Content-Type": "application/json"
         }
         data = {
-            "model": "llama-3.1-70b-versatile",
+            "model": "meta-llama/llama-4-scout-17b-16e-instruct",
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0.3,
             "max_tokens": 4000
@@ -1369,509 +1380,149 @@ class RedditCollector:
         except Exception as e:
             return {'error': str(e), 'found': False}
 
-
-# ==================== IMAGE/VIDEO PROCESSING ====================
-
-class EXIFExtractor:
-    """Extract EXIF metadata from images"""
-    
-    @staticmethod
-    def extract_exif(image_path: str) -> Dict[str, Any]:
-        """Extract all EXIF data from an image"""
-        try:
-            image = Image.open(image_path)
-            exif_data = image._getexif()
-            
-            if not exif_data:
-                return {'error': 'No EXIF data found', 'has_exif': False}
-            
-            exif_dict = {}
-            gps_data = {}
-            
-            for tag_id, value in exif_data.items():
-                tag = TAGS.get(tag_id, tag_id)
-                
-                if tag == 'GPSInfo':
-                    for gps_tag_id in value:
-                        gps_tag = GPSTAGS.get(gps_tag_id, gps_tag_id)
-                        gps_data[gps_tag] = value[gps_tag_id]
-                else:
-                    if isinstance(value, bytes):
-                        try:
-                            value = value.decode('utf-8', errors='ignore')
-                        except:
-                            value = str(value)
-                    exif_dict[tag] = value
-            
-            coordinates = None
-            if gps_data:
-                coordinates = EXIFExtractor.parse_gps(gps_data)
-            
-            return {
-                'has_exif': True,
-                'coordinates': coordinates,
-                'camera': {
-                    'make': exif_dict.get('Make', 'Unknown'),
-                    'model': exif_dict.get('Model', 'Unknown'),
-                    'software': exif_dict.get('Software', 'Unknown')
-                },
-                'settings': {
-                    'iso': exif_dict.get('ISOSpeedRatings', 'Unknown'),
-                    'aperture': exif_dict.get('FNumber', 'Unknown'),
-                    'shutter_speed': exif_dict.get('ExposureTime', 'Unknown'),
-                    'focal_length': exif_dict.get('FocalLength', 'Unknown')
-                },
-                'datetime': {
-                    'original': exif_dict.get('DateTimeOriginal', 'Unknown'),
-                    'digitized': exif_dict.get('DateTimeDigitized', 'Unknown')
-                },
-                'gps_raw': gps_data,
-                'full_exif': exif_dict
-            }
-        except Exception as e:
-            return {'error': str(e), 'has_exif': False}
-    
-    @staticmethod
-    def parse_gps(gps_data: Dict) -> Optional[Dict[str, float]]:
-        """Parse GPS coordinates from EXIF GPS data"""
-        try:
-            lat = gps_data.get('GPSLatitude')
-            lat_ref = gps_data.get('GPSLatitudeRef')
-            lon = gps_data.get('GPSLongitude')
-            lon_ref = gps_data.get('GPSLongitudeRef')
-            alt = gps_data.get('GPSAltitude')
-            
-            if not (lat and lon and lat_ref and lon_ref):
-                return None
-            
-            latitude = EXIFExtractor.convert_to_degrees(lat)
-            if lat_ref == 'S':
-                latitude = -latitude
-            
-            longitude = EXIFExtractor.convert_to_degrees(lon)
-            if lon_ref == 'W':
-                longitude = -longitude
-            
-            result = {
-                'latitude': round(latitude, 6),
-                'longitude': round(longitude, 6)
-            }
-            
-            if alt:
-                result['altitude'] = float(alt)
-            
-            return result
-        except Exception as e:
-            print(f"GPS parsing error: {e}")
-            return None
-    
-    @staticmethod
-    def convert_to_degrees(value) -> float:
-        """Convert GPS coordinates to degrees"""
-        d, m, s = value
-        return float(d) + (float(m) / 60.0) + (float(s) / 3600.0)
-
-
-class VideoFrameExtractor:
-    """Extract frames from video for analysis"""
-    
-    @staticmethod
-    def extract_frames(video_path: str, num_frames: int = 5) -> List[str]:
-        """Extract evenly spaced frames from video"""
-        try:
-            cap = cv2.VideoCapture(video_path)
-            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            
-            if total_frames == 0:
-                return []
-            
-            frame_indices = [int(total_frames * i / (num_frames + 1)) for i in range(1, num_frames + 1)]
-            extracted_frames = []
-            
-            for idx in frame_indices:
-                cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
-                ret, frame = cap.read()
-                
-                if ret:
-                    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
-                    cv2.imwrite(temp_file.name, frame)
-                    extracted_frames.append(temp_file.name)
-            
-            cap.release()
-            return extracted_frames
-            
-        except Exception as e:
-            print(f"Frame extraction error: {e}")
-            return []
-
-
-# ==================== AI ANALYZER ====================
-
 class AIAnalyzer:
-    """Universal AI Analyzer supporting multiple providers"""
-    
-    def __init__(self, service_type):
-        self.service = service_type
-    
+    """
+    Text-only AI Analyzer for OSINT analysis.
+    No vision, no images, no EXIF.
+    """
+
+    def __init__(self, service: str):
+        self.service = service
+
     def analyze_data(self, collected_data: Dict[str, Any], target: str) -> Dict[str, Any]:
-        """Analyze OSINT data using available AI service"""
-        
         if not self.service:
             return {
-                'error': 'No AI API key configured',
-                'entities': [],
-                'patterns': [],
-                'correlations': [],
-                'summary': 'Analysis unavailable - Please add an AI API key to .env'
+                "summary": "AI analysis unavailable",
+                "entities": {},
+                "patterns": [],
+                "correlations": [],
+                "risk_assessment": {
+                    "score": 0,
+                    "level": "UNKNOWN",
+                    "factors": []
+                }
             }
-        
-        analysis_prompt = f"""Analyze this OSINT data collected for target: {target}
 
-Data collected:
+        prompt = f"""
+You are an OSINT analyst.
+
+Target: {target}
+
+Collected data:
 {json.dumps(collected_data, indent=2)}
 
-Please provide:
-1. Extracted entities (names, locations, organizations, emails, usernames)
-2. Behavioral patterns and activity insights
-3. Cross-platform correlations
-4. Risk assessment and exposure level
-5. Summary of findings
-
-Format your response as JSON with these keys:
-- entities: {{names: [], locations: [], organizations: [], emails: [], usernames: []}}
-- patterns: [list of observed patterns]
-- correlations: [list of cross-platform connections]
-- risk_assessment: {{score: 0-10, level: "LOW/MEDIUM/HIGH/CRITICAL", factors: []}}
-- summary: "brief summary"
+Return ONLY valid JSON with:
+- entities
+- patterns
+- correlations
+- risk_assessment {{ score, level, factors }}
+- summary
 """
-        
+
         try:
-            if self.service == 'groq':
-                return self._analyze_with_groq(analysis_prompt)
-            elif self.service == 'gemini':
-                return self._analyze_with_gemini(analysis_prompt)
-            elif self.service == 'anthropic':
-                return self._analyze_with_anthropic(analysis_prompt)
-            elif self.service == 'huggingface':
-                return self._analyze_with_huggingface(analysis_prompt)
+            if self.service == "groq":
+                return self._call_groq(prompt)
+            elif self.service == "gemini":
+                return self._call_gemini(prompt)
+            elif self.service == "anthropic":
+                return self._call_anthropic(prompt)
+            elif self.service == "huggingface":
+                return self._call_huggingface(prompt)
             else:
-                return {'error': 'Unknown AI service', 'summary': 'Analysis failed'}
+                return {"summary": "Unsupported AI service"}
+
         except Exception as e:
             return {
-                'error': str(e),
-                'summary': 'Analysis failed',
-                'entities': {},
-                'patterns': [],
-                'correlations': []
-            }
-    
-    def analyze_image_for_geolocation(self, image_path: str, exif_data: Dict = None) -> Dict[str, Any]:
-        """Analyze image for geolocation using available AI service with vision"""
-        
-        if not self.service:
-            return {
-                'error': 'No AI API key configured',
-                'coordinates_estimate': None,
-                'confidence': 0,
-                'analysis': 'Analysis unavailable'
-            }
-        
-        try:
-            with open(image_path, 'rb') as img_file:
-                image_data = base64.standard_b64encode(img_file.read()).decode('utf-8')
-            
-            image_ext = os.path.splitext(image_path)[1].lower()
-            media_types = {
-                '.jpg': 'image/jpeg',
-                '.jpeg': 'image/jpeg',
-                '.png': 'image/png',
-                '.gif': 'image/gif',
-                '.webp': 'image/webp'
-            }
-            media_type = media_types.get(image_ext, 'image/jpeg')
-            
-            exif_context = ""
-            if exif_data and exif_data.get('has_exif'):
-                exif_context = f"""
-EXIF Data Available:
-- Camera: {exif_data.get('camera', {}).get('make')} {exif_data.get('camera', {}).get('model')}
-- Timestamp: {exif_data.get('datetime', {}).get('original', 'Unknown')}
-- GPS in EXIF: {'Yes' if exif_data.get('coordinates') else 'No'}
-"""
-                if exif_data.get('coordinates'):
-                    exif_context += f"- GPS Coordinates: {exif_data['coordinates']['latitude']}, {exif_data['coordinates']['longitude']}\n"
-            
-            prompt = f"""Analyze this image for OSINT geolocation purposes. {exif_context}
-
-Please identify and analyze:
-
-1. **Landmarks and Distinctive Buildings**: Any recognizable structures, monuments, or unique architecture
-2. **Visible Text**: Signs, billboards, license plates, street names, store names, or any readable text
-3. **Architecture and Urban Features**: Building styles, road infrastructure, urban planning patterns
-4. **Environmental Clues**: Vegetation types, terrain, climate indicators, weather conditions
-5. **Cultural Indicators**: Language on signs, vehicle types, architectural styles specific to regions
-6. **Shadow Analysis**: If visible, analyze shadows to estimate time of day and geographical hints
-7. **Additional Context**: Any other details that could help determine location
-
-Based on your analysis, provide:
-- Your best estimate of the location (city, region, or country)
-- Confidence level (0-100%)
-- Specific clues that support your conclusion
-- Alternative possible locations if uncertain
-
-Format your response as JSON:
-{{
-  "location_estimate": "City, Region, Country or best guess",
-  "coordinates_estimate": {{"latitude": XX.XXXX, "longitude": XX.XXXX}} or null,
-  "confidence": 0-100,
-  "primary_clues": ["clue1", "clue2", "clue3"],
-  "landmarks_identified": ["landmark1", "landmark2"],
-  "text_detected": ["text1", "text2"],
-  "architectural_style": "description",
-  "environmental_notes": "description",
-  "analysis": "detailed explanation of findings and reasoning",
-  "alternative_locations": ["location1", "location2"] or []
-}}
-
-Be thorough and specific in your analysis."""
-
-            if self.service == 'groq':
-                return self._analyze_image_with_groq(image_data, media_type, prompt)
-            elif self.service == 'gemini':
-                return self._analyze_image_with_gemini(image_data, media_type, prompt)
-            elif self.service == 'anthropic':
-                return self._analyze_image_with_anthropic(image_data, media_type, prompt)
-            else:
-                return {
-                    'error': f'{self.service} does not support image analysis',
-                    'coordinates_estimate': None,
-                    'confidence': 0,
-                    'analysis': 'Image analysis not available with this AI service'
+                "summary": f"AI failed: {str(e)}",
+                "entities": {},
+                "patterns": [],
+                "correlations": [],
+                "risk_assessment": {
+                    "score": 0,
+                    "level": "UNKNOWN",
+                    "factors": []
                 }
-                
-        except Exception as e:
-            return {
-                'error': str(e),
-                'coordinates_estimate': None,
-                'confidence': 0,
-                'analysis': f'Analysis failed: {str(e)}'
             }
-    
-    def _analyze_with_groq(self, prompt: str) -> Dict[str, Any]:
-        """Analyze using Groq API"""
-        url = "https://api.groq.com/openai/v1/chat/completions"
-        headers = {
-            "Authorization": f"Bearer {GROQ_API_KEY}",
-            "Content-Type": "application/json"
-        }
-        data = {
-            "model": "llama-3.1-70b-versatile",
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.7,
-            "max_tokens": 2000
-        }
-        
-        response = requests.post(url, headers=headers, json=data, timeout=30)
+
+    # ---------- PROVIDERS ----------
+
+    def _call_groq(self, prompt: str) -> Dict[str, Any]:
+        response = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {GROQ_API_KEY}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": "meta-llama/llama-4-scout-17b-16e-instruct",
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.3,
+                "max_tokens": 2000
+            },
+            timeout=60
+        )
         response.raise_for_status()
-        
-        result = response.json()
-        response_text = result['choices'][0]['message']['content']
-        
-        return self._parse_ai_response(response_text)
-    
-    def _analyze_with_gemini(self, prompt: str) -> Dict[str, Any]:
-        """Analyze using Google Gemini API"""
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
-        headers = {"Content-Type": "application/json"}
-        data = {
-            "contents": [{
-                "parts": [{"text": prompt}]
-            }]
-        }
-        
-        response = requests.post(url, headers=headers, json=data, timeout=30)
+        return self._parse(response.json()["choices"][0]["message"]["content"])
+
+    def _call_gemini(self, prompt: str) -> Dict[str, Any]:
+        response = requests.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}",
+            headers={"Content-Type": "application/json"},
+            json={"contents": [{"parts": [{"text": prompt}]}]},
+            timeout=60
+        )
         response.raise_for_status()
-        
-        result = response.json()
-        response_text = result['candidates'][0]['content']['parts'][0]['text']
-        
-        return self._parse_ai_response(response_text)
-    
-    def _analyze_with_anthropic(self, prompt: str) -> Dict[str, Any]:
-        """Analyze using Claude API"""
+        return self._parse(
+            response.json()["candidates"][0]["content"]["parts"][0]["text"]
+        )
+
+    def _call_anthropic(self, prompt: str) -> Dict[str, Any]:
         import anthropic
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-        
-        message = client.messages.create(
+        msg = client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=2000,
             messages=[{"role": "user", "content": prompt}]
         )
-        
-        response_text = message.content[0].text
-        return self._parse_ai_response(response_text)
-    
-    def _analyze_with_huggingface(self, prompt: str) -> Dict[str, Any]:
-        """Analyze using Hugging Face Inference API"""
-        url = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2"
-        headers = {"Authorization": f"Bearer {HUGGINGFACE_API_KEY}"}
-        data = {"inputs": prompt}
-        
-        response = requests.post(url, headers=headers, json=data, timeout=30)
-        response.raise_for_status()
-        
-        result = response.json()
-        response_text = result[0]['generated_text'] if isinstance(result, list) else result.get('generated_text', '')
-        
-        return self._parse_ai_response(response_text)
-    
-    def _analyze_image_with_groq(self, image_data: str, media_type: str, prompt: str) -> Dict[str, Any]:
-        """Analyze image using Groq Vision API"""
-        url = "https://api.groq.com/openai/v1/chat/completions"
-        headers = {
-            "Authorization": f"Bearer {GROQ_API_KEY}",
-            "Content-Type": "application/json"
-        }
-        data = {
-            "model": "llama-3.2-90b-vision-preview",
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:{media_type};base64,{image_data}"
-                            }
-                        },
-                        {
-                            "type": "text",
-                            "text": prompt
-                        }
-                    ]
-                }
-            ],
-            "temperature": 0.7,
-            "max_tokens": 2000
-        }
-        
-        response = requests.post(url, headers=headers, json=data, timeout=60)
-        response.raise_for_status()
-        
-        result = response.json()
-        response_text = result['choices'][0]['message']['content']
-        
-        return self._parse_vision_response(response_text)
-    
-    def _analyze_image_with_gemini(self, image_data: str, media_type: str, prompt: str) -> Dict[str, Any]:
-        """Analyze image using Gemini Vision API"""
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
-        headers = {"Content-Type": "application/json"}
-        data = {
-            "contents": [{
-                "parts": [
-                    {
-                        "inline_data": {
-                            "mime_type": media_type,
-                            "data": image_data
-                        }
-                    },
-                    {
-                        "text": prompt
-                    }
-                ]
-            }]
-        }
-        
-        response = requests.post(url, headers=headers, json=data, timeout=60)
-        response.raise_for_status()
-        
-        result = response.json()
-        response_text = result['candidates'][0]['content']['parts'][0]['text']
-        
-        return self._parse_vision_response(response_text)
-    
-    def _analyze_image_with_anthropic(self, image_data: str, media_type: str, prompt: str) -> Dict[str, Any]:
-        """Analyze image using Claude Vision API"""
-        import anthropic
-        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-        
-        message = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=2000,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": media_type,
-                                "data": image_data
-                            }
-                        },
-                        {
-                            "type": "text",
-                            "text": prompt
-                        }
-                    ]
-                }
-            ]
+        return self._parse(msg.content[0].text)
+
+    def _call_huggingface(self, prompt: str) -> Dict[str, Any]:
+        response = requests.post(
+            "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2",
+            headers={"Authorization": f"Bearer {HUGGINGFACE_API_KEY}"},
+            json={"inputs": prompt},
+            timeout=60
         )
-        
-        response_text = message.content[0].text
-        return self._parse_vision_response(response_text)
-    
-    def _parse_ai_response(self, response_text: str) -> Dict[str, Any]:
-        """Parse AI response and extract JSON"""
+        response.raise_for_status()
+        data = response.json()
+        text = data[0]["generated_text"] if isinstance(data, list) else data.get("generated_text", "")
+        return self._parse(text)
+
+    # ---------- PARSER ----------
+
+    def _parse(self, text: str) -> Dict[str, Any]:
         try:
-            json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
-            if json_match:
-                return json.loads(json_match.group())
-            else:
-                return {
-                    'summary': response_text,
-                    'entities': {},
-                    'patterns': [],
-                    'correlations': [],
-                    'risk_assessment': {'score': 0, 'level': 'UNKNOWN', 'factors': []}
-                }
-        except json.JSONDecodeError:
-            return {
-                'summary': response_text,
-                'entities': {},
-                'patterns': [],
-                'correlations': [],
-                'risk_assessment': {'score': 0, 'level': 'UNKNOWN', 'factors': []}
+            match = re.search(r"\{.*\}", text, re.DOTALL)
+            if match:
+                return json.loads(match.group())
+        except Exception:
+            pass
+
+        return {
+            "summary": text[:500],
+            "entities": {},
+            "patterns": [],
+            "correlations": [],
+            "risk_assessment": {
+                "score": 0,
+                "level": "UNKNOWN",
+                "factors": []
             }
-    
-    def _parse_vision_response(self, response_text: str) -> Dict[str, Any]:
-        """Parse vision AI response and extract JSON"""
-        try:
-            json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
-            if json_match:
-                return json.loads(json_match.group())
-            else:
-                return {
-                    'location_estimate': 'Unable to determine',
-                    'coordinates_estimate': None,
-                    'confidence': 0,
-                    'analysis': response_text,
-                    'primary_clues': [],
-                    'landmarks_identified': [],
-                    'text_detected': []
-                }
-        except json.JSONDecodeError:
-            return {
-                'location_estimate': 'Unable to determine',
-                'coordinates_estimate': None,
-                'confidence': 0,
-                'analysis': response_text,
-                'primary_clues': [],
-                'landmarks_identified': [],
-                'text_detected': []
-            }
+        }
+
+
+
+
 
 def build_multi_modal_fusion(results, platform_presence):
     # Step 1: Verified platforms (real collected data only)
@@ -2194,173 +1845,9 @@ def analyze():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-@app.route('/api/geolocation/image', methods=['POST'])
-def analyze_image_geolocation():
-    try:
-        if 'file' not in request.files:
-            return jsonify({"error": "No file provided"}), 400
-
-        file = request.files['file']
-        if file.filename == "":
-            return jsonify({"error": "Empty filename"}), 400
-
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
-        file.save(temp_file.name)
-
-        # 1️⃣ Try EXIF first
-        exif_data = EXIFExtractor.extract_exif(temp_file.name)
-        if exif_data.get("coordinates"):
-            return jsonify({
-                "coordinates": exif_data["coordinates"],
-                "coordinate_source": "exif",
-                "confidence": 100,
-                "analysis": "GPS data extracted from image metadata",
-                "ai_service_used": AI_SERVICE or "none"
-            }), 200
-
-        # 2️⃣ AI fallback
-        analyzer = AIAnalyzer(AI_SERVICE)
-        ai_result = analyzer.analyze_image_for_geolocation(
-            temp_file.name,
-            exif_data=exif_data
-        )
-
-        return jsonify({
-    "coordinates": ai_result.get("coordinates_estimate"),  # may be None
-    "location_estimate": ai_result.get("location_estimate"),
-    "coordinate_source": "ai_estimation",
-    "confidence": ai_result.get("confidence", 0),
-    "analysis": ai_result.get("analysis", ""),
-    "clues": ai_result.get("primary_clues", []),
-    "landmarks": ai_result.get("landmarks_identified", []),
-    "ai_service_used": AI_SERVICE or "none"
-}), 200
-
-
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-    finally:
-        try:
-            os.unlink(temp_file.name)
-        except:
-            pass
-
-
-
-
-@app.route('/api/geolocation/video', methods=['POST'])
-def analyze_video():
-    """Endpoint for video geolocation analysis"""
-    try:
-        if 'file' not in request.files:
-            return jsonify({'error': 'No file provided'}), 400
-        
-        file = request.files['file']
-        num_frames = int(request.form.get('num_frames', 5))
-        
-        if file.filename == '':
-            return jsonify({'error': 'Empty filename'}), 400
-        
-        temp_video = tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.filename)[1])
-        file.save(temp_video.name)
-        
-        print(f"Extracting {num_frames} frames from video...")
-        frame_paths = VideoFrameExtractor.extract_frames(temp_video.name, num_frames)
-        
-        if not frame_paths:
-            os.unlink(temp_video.name)
-            return jsonify({'error': 'Failed to extract frames from video'}), 500
-        
-        print(f"Analyzing {len(frame_paths)} frames with {AI_SERVICE or 'no AI service'}...")
-        
-        if AI_SERVICE:
-            analyzer = AIAnalyzer(AI_SERVICE)
-            frame_analyses = []
-            
-            for i, frame_path in enumerate(frame_paths):
-                print(f"Analyzing frame {i+1}/{len(frame_paths)}...")
-                analysis = analyzer.analyze_image_for_geolocation(frame_path)
-                frame_analyses.append(analysis)
-            
-            vision_analysis = correlate_frame_analyses(frame_analyses)
-        else:
-            vision_analysis = {
-                'error': 'No AI API key configured',
-                'confidence': 0,
-                'location_estimate': 'Unknown'
-            }
-        
-        os.unlink(temp_video.name)
-        for frame_path in frame_paths:
-            os.unlink(frame_path)
-        
-        response = {
-            'coordinates': vision_analysis.get('coordinates_estimate'),
-            'coordinate_source': 'ai_estimation_video',
-            'confidence': vision_analysis.get('confidence', 0),
-            'frames_analyzed': vision_analysis.get('frames_analyzed', 0),
-            'location_estimate': vision_analysis.get('location_estimate', 'Unknown'),
-            'clues': vision_analysis.get('all_clues', []),
-            'landmarks': vision_analysis.get('landmarks_identified', []),
-            'text_detected': vision_analysis.get('text_detected', []),
-            'analysis': vision_analysis.get('analysis', ''),
-            'ai_service_used': AI_SERVICE or 'none',
-            'timestamp': datetime.now().isoformat()
-        }
-        
-        return jsonify(response), 200
-        
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-def correlate_frame_analyses(analyses: List[Dict]) -> Dict[str, Any]:
-    """Correlate multiple frame analyses to increase confidence"""
-    if not analyses:
-        return {
-            'error': 'No analyses to correlate',
-            'coordinates_estimate': None,
-            'confidence': 0
-        }
     
-    all_clues = []
-    all_landmarks = []
-    all_text = []
-    location_estimates = []
-    coordinates = []
-    confidences = []
-    
-    for analysis in analyses:
-        if not analysis.get('error'):
-            all_clues.extend(analysis.get('primary_clues', []))
-            all_landmarks.extend(analysis.get('landmarks_identified', []))
-            all_text.extend(analysis.get('text_detected', []))
-            location_estimates.append(analysis.get('location_estimate', ''))
-            if analysis.get('coordinates_estimate'):
-                coordinates.append(analysis['coordinates_estimate'])
-            confidences.append(analysis.get('confidence', 0))
-    
-    avg_confidence = sum(confidences) / len(confidences) if confidences else 0
-    location = max(set(location_estimates), key=location_estimates.count) if location_estimates else 'Unknown'
-    
-    avg_coords = None
-    if coordinates:
-        avg_lat = sum(c['latitude'] for c in coordinates) / len(coordinates)
-        avg_lon = sum(c['longitude'] for c in coordinates) / len(coordinates)
-        avg_coords = {'latitude': round(avg_lat, 6), 'longitude': round(avg_lon, 6)}
-    
-    return {
-        'location_estimate': location,
-        'coordinates_estimate': avg_coords,
-        'confidence': round(avg_confidence, 1),
-        'frames_analyzed': len(analyses),
-        'all_clues': list(set(all_clues)),
-        'landmarks_identified': list(set(all_landmarks)),
-        'text_detected': list(set(all_text)),
-        'analysis': f'Analyzed {len(analyses)} frames. Confidence increased through correlation of findings across multiple frames.'
-    }
+
+
 
 
 @app.route('/api/health', methods=['GET'])
@@ -2388,9 +1875,6 @@ def health():
 if __name__ == '__main__':
     print(f"🚀 CHAKRAVYUH 1.0 OSINT Backend Starting...")
     print(f"🔡 AI Service: {AI_SERVICE or 'None configured'}")
-    print(f"🖼️  Image Geolocation: {'Enabled' if AI_SERVICE in ['groq', 'gemini', 'anthropic'] else 'Disabled (requires Groq/Gemini/Anthropic)'}")
-    print(f"🎥 Video Geolocation: {'Enabled' if AI_SERVICE in ['groq', 'gemini', 'anthropic'] else 'Disabled (requires Groq/Gemini/Anthropic)'}")
     print(f"🛡️  Risk Assessment: Enabled with {AI_SERVICE or 'basic scoring'}")
     print(f"📊 Risk Analyzer: {'AI-Enhanced' if AI_SERVICE else 'Rule-Based Only'}")
     app.run(debug=True, port=5000)
-
