@@ -182,8 +182,12 @@ hackathon-osint/
 │   ├── OSINTDashboard.js
 │   ├── reportWebVitals.js                       
 │   ├── setupTests.js
+│   ├── SkeletonCard
+│   ├── SnowEffect.js
+│   └── VisualIntelligence.js
 ├── .env
 ├── app.py
+├── visual.py
 ├── package-lock.json
 ├── package.json
 ├── postcssconfig.js
