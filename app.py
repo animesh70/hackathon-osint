@@ -20,7 +20,7 @@ from enum import Enum
 
 load_dotenv()
 from visual import visual_bp
-
+from reverse_osint import reverse_osint_bp
 
 
 
@@ -29,6 +29,7 @@ app = Flask(__name__)
 CORS(app)
 
 app.register_blueprint(visual_bp)
+app.register_blueprint(reverse_osint_bp)
 
 
 # Configuration

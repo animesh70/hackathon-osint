@@ -17,6 +17,7 @@ import {
 
 import ChatAssistant from './ChatAssistant';
 import VisualIntelligence from './VisualIntelligence';
+import ReverseOSINT from './ReverseOSINT';
 
 
 export default function OSINTDashboard() {
@@ -78,7 +79,8 @@ const platformIcons = {
   const challenges = [
     { id: 'multi-modal', name: 'Multi-Modal Fusion', icon: Globe },
     { id: 'visual', name: 'Visual Intelligence', icon: Image },
-    { id: 'risk', name: 'Risk Assessment', icon: Shield }
+    { id: 'risk', name: 'Risk Assessment', icon: Shield },
+    { id: 'reverse-osint', name: 'Reverse OSINT', icon: Eye }
   ];
 
   // Check backend health on mount
@@ -867,6 +869,14 @@ const riskScore = results?.risk_assessment?.risk_score
         {/* Visual Intelligence */}
       {activeTab === 'visual' && (
   <VisualIntelligence
+    backendStatus={backendStatus}
+    BACKEND_URL={BACKEND_URL}
+  />
+)}
+
+{/* Reverse OSINT */}
+{activeTab === 'reverse-osint' && (
+  <ReverseOSINT
     backendStatus={backendStatus}
     BACKEND_URL={BACKEND_URL}
   />
