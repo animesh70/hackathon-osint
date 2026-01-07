@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+
+{% block title %}Magic Map - OSINT Location Visualizer{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="header">
+        <h1>🧸 Magic Map - OSINT Location Visualizer</h1>
+        <p>Analyze publicly available location data from social media posts</p>
+    </div>
+
+    <div class="content">
+        <div class="sidebar">
+            <div class="disclaimer">
+                <h4>⚠️ Ethical Use Notice</h4>
+                <p>This tool analyzes only publicly available data. It shows what information is already visible to anyone. Use responsibly and respect privacy.</p>
+            </div>
+
+            <div class="input-section">
+                <h3>🔍 Analyze Posts</h3>
+                <div class="input-group">
+                    <label>Username or Source</label>
+                    <input type="text" id="username" placeholder="e.g., @publicuser" value="demo_user">
+                </div>
+                <div class="input-group">
+                    <label>Platform</label>
+                    <select id="platform">
+                        <option value="instagram">Instagram</option>
+                        <option value="twitter">Twitter (Demo)</option>
+                        <option value="facebook">Facebook (Demo)</option>
+                    </select>
+                </div>
+                <button class="btn" onclick="analyzeData()">🗺️ Visualize Location Data</button>
+                <button class="btn btn-secondary" onclick="clearAnalysis()">🔄 Clear Map</button>
+            </div>
+            <div class="example-data">
+                <h4>💡 Demo Mode</h4>
+                <p>Click the button above to see example analysis. In a real implementation, this would connect to Instagram's API or scrape public posts (with appropriate permissions).</p>
+            </div>
+
+            <div class="stats" id="stats" style="display: none;">
+                <h4>📊 Analysis Summary</h4>
+                <div class="stat-item">
+                    <span class="stat-label">Total Posts:</span>
+                    <span class="stat-value" id="totalPosts">0</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Exact Locations:</span>
+                    <span class="stat-value" id="exactCount">0</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Inferred Locations:</span>
+                    <span class="stat-value" id="approxCount">0</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Time Span:</span>
+                    <span class="stat-value" id="timeSpan">-</span>
+                </div>
+            </div>
+
+            <div class="posts-list" id="postsList"></div>
+        </div>
+
+        <div class="map-container">
+            <div id="map"></div>
+            <div class="legend">
+                <h4>🗺️ Map Legend</h4>
+                <div class="legend-item">
+                    <div class="legend-icon exact">🔴</div>
+                    <span>Exact Pin (GPS data)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-icon approx">🟡</div>
+                    <span>Approx Region (inferred)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-icon cluster">🟢</div>
+                    <span>Cluster (multiple posts)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-icon movement">➖</div>
+                    <span>Movement Path</span>
+                </div>
+            </div>
+
+            <div class="map-controls">
+                <button class="control-btn" onclick="exportData()" title="Export Data">
+                    💾
+                </button>
+                <button class="control-btn" onclick="toggleTimeline()" title="Show Timeline">
+                    📅
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="timeline-modal" id="timelineModal" style="display: none;">
+    <div class="timeline-content">
+        <div class="timeline-header">
+            <h3>📅 Timeline View</h3>
+            <button class="close-btn" onclick="toggleTimeline()">✕</button>
+        </div>
+        <div class="timeline-body" id="timelineBody">
+            <!-- Timeline will be populated here -->
+        </div>
+    </div>
+</div>
+{% endblock %}

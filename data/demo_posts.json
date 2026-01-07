@@ -1,0 +1,85 @@
+[
+  {
+    "id": "1",
+    "username": "demo_user",
+    "platform": "instagram",
+    "date": "2026-01-02T10:30:00",
+    "caption": "Beautiful morning at India Gate!",
+    "location": {
+      "lat": 28.6139,
+      "lng": 77.2090,
+      "type": "exact",
+      "location": "Delhi",
+      "confidence": "high",
+      "description": "Photo with GPS metadata",
+      "imageFeatures": ["India Gate visible", "Urban setting"]
+    }
+  },
+  {
+    "id": "2",
+    "username": "demo_user",
+    "platform": "instagram",
+    "date": "2026-01-05T14:20:00",
+    "caption": "Weekend vibes at Marine Drive",
+    "location": {
+      "lat": 19.0760,
+      "lng": 72.8777,
+      "type": "cluster",
+      "location": "Mumbai Area",
+      "confidence": "high",
+      "description": "Multiple posts from same area",
+      "imageFeatures": ["Marine Drive", "Coastal area", "High-rise buildings"],
+      "count": 3
+    }
+  },
+  {
+    "id": "3",
+    "username": "demo_user",
+    "platform": "instagram",
+    "date": "2026-01-10T09:15:00",
+    "caption": "Beach therapy",
+    "location": {
+      "lat": 15.2993,
+      "lng": 74.1240,
+      "type": "approx",
+      "location": "Goa Region",
+      "confidence": "medium",
+      "description": "Inferred from image content",
+      "imageFeatures": ["Beach", "Palm trees", "Coastal signboards"],
+      "radius": 20000
+    }
+  },
+  {
+    "id": "4",
+    "username": "demo_user",
+    "platform": "instagram",
+    "date": "2026-01-15T16:45:00",
+    "caption": "Back to the tech hub",
+    "location": {
+      "lat": 12.9716,
+      "lng": 77.5946,
+      "type": "exact",
+      "location": "Bangalore",
+      "confidence": "high",
+      "description": "Photo with GPS metadata",
+      "imageFeatures": ["Tech park visible", "Cubbon Park"]
+    }
+  },
+  {
+    "id": "5",
+    "username": "demo_user",
+    "platform": "instagram",
+    "date": "2026-01-18T11:30:00",
+    "caption": "Gods own country",
+    "location": {
+      "lat": 9.9312,
+      "lng": 76.2673,
+      "type": "approx",
+      "location": "Kerala Coast",
+      "confidence": "low",
+      "description": "Inferred from image content",
+      "imageFeatures": ["Backwaters", "Traditional boats", "Malayalam text"],
+      "radius": 30000
+    }
+  }
+]

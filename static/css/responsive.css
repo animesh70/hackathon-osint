@@ -1,0 +1,91 @@
+@media (max-width: 968px) {
+    .content {
+        grid-template-columns: 1fr;
+    }
+
+    .sidebar {
+        max-height: none;
+        border-right: none;
+        border-bottom: 1px solid #e0e0e0;
+    }
+
+    #map {
+        height: 500px;
+    }
+
+    .legend {
+        bottom: 10px;
+        right: 10px;
+        min-width: 200px;
+        padding: 15px;
+    }
+
+    .legend h4 {
+        font-size: 1em;
+    }
+
+    .legend-item {
+        font-size: 0.85em;
+        margin-bottom: 8px;
+    }
+
+    .legend-icon {
+        width: 25px;
+        height: 25px;
+        font-size: 1em;
+    }
+
+    .header h1 {
+        font-size: 1.8em;
+    }
+
+    .header p {
+        font-size: 0.95em;
+    }
+
+    .map-controls {
+        top: 10px;
+        right: 10px;
+    }
+
+    .control-btn {
+        width: 40px;
+        height: 40px;
+        font-size: 1.3em;
+    }
+}
+
+@media (max-width: 576px) {
+    body {
+        padding: 10px;
+    }
+
+    .container {
+        border-radius: 15px;
+    }
+
+    .header {
+        padding: 20px;
+    }
+
+    .header h1 {
+        font-size: 1.5em;
+    }
+
+    .header p {
+        font-size: 0.9em;
+    }
+
+    .sidebar {
+        padding: 20px;
+    }
+
+    .legend {
+        font-size: 0.85em;
+        padding: 12px;
+    }
+
+    .timeline-content {
+        max-height: 90vh;
+    }
+}
