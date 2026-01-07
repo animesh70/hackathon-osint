@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Search, Upload, MapPin, Shield, AlertTriangle, Globe, Image, FileText, Activity, Eye, Target, Zap, CheckCircle, XCircle } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Search, Shield, AlertTriangle, Globe, Image, FileText, Activity, Eye, Target, Zap } from 'lucide-react';
 import SkeletonCard from "./SkeletonCard";
 import SnowEffect from './SnowEffect';
 import { Snowflake } from 'lucide-react'; 
@@ -38,10 +38,10 @@ export default function OSINTDashboard() {
      linkedin: true,
      twitter: true
   });
+
   const [backgroundTheme, setBackgroundTheme] = useState('Dark Mode');
   const [snowEnabled, setSnowEnabled] = useState(true);
-  
-  
+
 const backgrounds = {
   'Dark Mode': 'from-black/50 to-black/30',
   'Light Mode': 'from-white/80 to-gray-200/100',
@@ -56,7 +56,6 @@ const backgrounds = {
   'Deep Night': 'from-indigo-950 via-purple-950 to-black',
   'Chocolate': 'from-amber-900 via-red-900 to-stone-900'
 };
-
 
 
 
@@ -83,22 +82,29 @@ const platformIcons = {
     { id: 'reverse-osint', name: 'Reverse OSINT', icon: Eye }
   ];
 
-  // Check backend health on mount
-  useEffect(() => {
-    checkBackendHealth();
-  }, []);
+  
 
-  const checkBackendHealth = async () => {
-    try {
-      const response = await fetch(`${BACKEND_URL}/api/health`);
-      const data = await response.json();
-      setBackendStatus(data);
-      addLog('Backend connected successfully', 'success');
-    } catch (error) {
-      setBackendStatus({ status: 'offline', error: error.message });
-      addLog('Backend connection failed. Make sure Flask server is running on port 5000', 'error');
-    }
-  };
+  const checkBackendHealth = useCallback(async () => {
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/health`);
+    const data = await response.json();
+    setBackendStatus(data);
+    addLog('Backend connected successfully', 'success');
+  } catch (error) {
+    setBackendStatus({ status: 'offline', error: error.message });
+    addLog(
+      'Backend connection failed. Make sure Flask server is running on port 5000',
+      'error'
+    );
+  }
+}, [BACKEND_URL]);
+
+// Check backend health on mount
+  useEffect(() => {
+  checkBackendHealth();
+}, [checkBackendHealth]);
+
+
 
   const addLog = (message, type = 'info') => {
   const timestamp = new Date().toLocaleTimeString();
@@ -208,6 +214,16 @@ const renderFactor = (f) => {
     if (f.factor) {
       return f.factor;
     }
+  }
+  return "";
+};
+const renderSafeText = (v) => {
+  if (typeof v === "string" || typeof v === "number") return v;
+  if (Array.isArray(v)) return v.join(", ");
+  if (typeof v === "object" && v !== null) {
+    return Object.entries(v)
+      .map(([k, val]) => `${k}: ${val}`)
+      .join(" • ");
   }
   return "";
 };
@@ -341,7 +357,6 @@ const riskScore = results?.risk_assessment?.risk_score
    <div
   className={`min-h-screen bg-gradient-to-br ${backgrounds[backgroundTheme]} text-white transition-colors duration-500`}
 >
-
       {/* Snow Effect */}
       <SnowEffect intensity={25} enabled={snowEnabled} />
 
@@ -757,7 +772,7 @@ const riskScore = results?.risk_assessment?.risk_score
     </h3>
 
     <p className="text-sm text-gray-300 leading-relaxed">
-      {results.ai_analysis.summary || "AI analysis completed. See detailed findings below."}
+      {renderSafeText(results.ai_analysis.summary) || "AI analysis completed. See detailed findings below."}
     </p>
 
     {results.ai_analysis.risk_assessment && (
@@ -801,21 +816,56 @@ const riskScore = results?.risk_assessment?.risk_score
     )}
 
     {/* Show entities if available */}
-    {results.ai_analysis.entities && 
-     Object.keys(results.ai_analysis.entities).length > 0 && (
-      <div className="mt-3 p-3 bg-black/40 rounded-lg">
-        <p className="text-xs text-purple-300 mb-2">🎯 Extracted Entities:</p>
-        <div className="flex flex-wrap gap-2">
-          {Object.entries(results.ai_analysis.entities).map(([type, values]) => (
-            Array.isArray(values) && values.length > 0 && (
-              <span key={type} className="text-xs bg-purple-500/20 text-purple-300 px-2 py-1 rounded capitalize">
-                {type}: {values.length}
-              </span>
-            )
-          ))}
-        </div>
-      </div>
-    )}
+{results?.ai_analysis?.entities &&
+ Object.keys(results.ai_analysis.entities).length > 0 && (
+  <div className="mt-3 p-3 bg-black/40 rounded-lg">
+    <p className="text-xs text-purple-300 mb-2">🎯 Extracted Entities:</p>
+
+    <div className="flex flex-wrap gap-2">
+      {Object.entries(results.ai_analysis.entities).map(([key, value]) => {
+
+        // ✅ Case 1: array (normal NER output)
+        if (Array.isArray(value)) {
+          return value.length > 0 ? (
+            <span
+              key={key}
+              className="text-xs bg-purple-500/20 text-purple-300 px-2 py-1 rounded capitalize"
+            >
+              {key}: {value.length}
+            </span>
+          ) : null;
+        }
+
+        // ✅ Case 2: object (THIS was crashing your app)
+        if (typeof value === "object" && value !== null) {
+          return (
+            <span
+              key={key}
+              className="text-xs bg-purple-500/10 text-purple-200 px-2 py-1 rounded capitalize"
+            >
+              {key}
+            </span>
+          );
+        }
+
+        // ✅ Case 3: primitive
+        if (typeof value === "string" || typeof value === "number") {
+          return (
+            <span
+              key={key}
+              className="text-xs bg-purple-500/10 text-purple-200 px-2 py-1 rounded capitalize"
+            >
+              {key}: {value}
+            </span>
+          );
+        }
+
+        return null;
+      })}
+    </div>
+  </div>
+)}
+
 
     {/* Show patterns if available */}
     {results.ai_analysis.patterns && 
@@ -881,7 +931,6 @@ const riskScore = results?.risk_assessment?.risk_score
     BACKEND_URL={BACKEND_URL}
   />
 )}
-
   
           {/* Risk Assessment */}
         {activeTab === 'risk' && results && (
@@ -1029,6 +1078,20 @@ const riskScore = results?.risk_assessment?.risk_score
     : attackerNarrative(item)}
 </p>
 
+{/* 🔥 ADD THIS RIGHT HERE */}
+{viewMode === "attacker" && (
+  <div className="mt-2 flex gap-2 flex-wrap">
+    {exploitTags(item).map(tag => (
+      <span
+        key={tag}
+        className="text-[10px] px-2 py-0.5 rounded bg-red-500/20 text-red-300"
+      >
+        {tag}
+      </span>
+    ))}
+  </div>
+)}
+
                         <p className="text-xs text-gray-400">
   Found on: {item.platforms}
   {item.platforms?.toLowerCase().includes("twitter") && (
@@ -1103,13 +1166,13 @@ const riskScore = results?.risk_assessment?.risk_score
         )}
       </div>
 
-         {/* Chat Assistant - Add this right before the Footer */}
-        <ChatAssistant 
-            backendStatus={backendStatus}
-            currentTab={activeTab}
-            analysisResults={results}
-            backgroundTheme={backgroundTheme}
-            setBackgroundTheme={setBackgroundTheme}
+        {/* Chat Assistant - Add this right before the Footer */}
+     <ChatAssistant 
+  backendStatus={backendStatus}
+  currentTab={activeTab}
+  analysisResults={results}
+  backgroundTheme={backgroundTheme}
+  setBackgroundTheme={setBackgroundTheme}
 />
 
 
