@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 Flask==3.0.0
 Flask-CORS==4.0.0
 python-dotenv==1.0.0
@@ -5,3 +6,20 @@ requests==2.31.0
 Pillow==10.1.0
 geopy==2.4.1
 python-dateutil==2.8.2
+=======
+flask==3.0.0
+flask-cors==4.0.0
+requests==2.31.0
+beautifulsoup4==4.12.2
+python-dotenv==1.0.0
+
+# Image and Video processing (for geolocation feature)
+Pillow==10.1.0
+opencv-python==4.8.1.78
+
+# AI API clients (multiple options - add at least ONE free key)
+groq==0.9.0                      # Free - Recommended
+google-generativeai==0.3.0       # Free tier available
+anthropic==0.39.0                # Paid but powerful
+# Note: Hugging Face works via requests library (no separate package needed)
+>>>>>>> d46736adb11c5fcbcb2b72c57efef6f8ae7f0354
