@@ -1,0 +1,101 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom Cursors */
+* {
+  cursor: url('/cursors/ImageToStl.com_arrow.png'), auto;
+}
+
+a, button, [role="button"], .cursor-pointer {
+  cursor: url('/cursors/ImageToStl.com_hand.png'), pointer;
+}
+
+input[type="text"], 
+input[type="email"], 
+input[type="password"], 
+input[type="search"], 
+textarea {
+  cursor: url('/cursors/ImageToStl.com_ibeam.png'), text;
+}
+
+input[type="checkbox"], 
+input[type="radio"], 
+label {
+  cursor: url('/cursors/ImageToStl.com_hand.png'), pointer;
+}
+
+.cursor-help, [title] {
+  cursor: url('/cursors/ImageToStl.com_help.png'), help;
+}
+
+.cursor-wait, .analyzing {
+  cursor: url('/cursors/wait-ezgif.com-ani-to-gif-converter.gif'), wait;
+}
+
+.cursor-not-allowed, input:disabled, button:disabled {
+  cursor: url('/cursors/ImageToStl.com_no.png'), not-allowed;
+}
+
+.cursor-move, [draggable="true"] {
+  cursor: url('/cursors/sizeall.png'), move;
+}
+
+.cursor-grab {
+  cursor: url('/cursors/ImageToStl.com_hand.png'), grab;
+}
+
+.cursor-grabbing {
+  cursor: url('/cursors/ImageToStl.com_hand.png'), grabbing;
+}
+
+.cursor-crosshair {
+  cursor: url('/cursors/ImageToStl.com_crosshair.png'), crosshair;
+}
+
+.cursor-pen {
+  cursor: url('/cursors/nwpen.png'), default;
+}
+
+.cursor-person {
+  cursor: url('/cursors/person.png'), default;
+}
+
+.cursor-pin {
+  cursor: url('/cursors/pin.png'), default;
+}
+
+.cursor-resize-ns {
+  cursor: url('/cursors/sizens.png'), ns-resize;
+}
+
+.cursor-resize-ew {
+  cursor: url('/cursors/sizewe.png'), ew-resize;
+}
+
+.cursor-resize-nesw {
+  cursor: url('/cursors/sizenesw.png'), nesw-resize;
+}
+
+.cursor-resize-nwse {
+  cursor: url('/cursors/sizenwse.png'), nwse-resize;
+}
+
+.cursor-up-arrow {
+  cursor: url('/cursors/uparrow.png'), default;
+}
+
+/* Specific cursor for links on hover */
+a:hover, button:hover:not(:disabled) {
+  cursor: url('/cursors/ImageToStl.com_hand.png'), pointer;
+}
+
+/* Progress/loading cursor */
+.cursor-progress, .loading {
+  cursor: url('/cursors/appstarting-ezgif.com-ani-to-gif-converter.gif'), progress;
+}
+
+/* Apply progress cursor when analyzing */
+button:disabled.analyzing {
+  cursor: url('/cursors/appstarting-ezgif.com-ani-to-gif-converter.gif'), progress;
+}
