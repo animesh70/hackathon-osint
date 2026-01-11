@@ -1,8 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Search, Shield, AlertTriangle, Globe, Image, FileText, Activity, Eye, Target, Zap } from 'lucide-react';
+import { Search, Shield, AlertTriangle, Globe, Image, FileText, Activity, Eye, Target, Zap, LogOut, UserCircle, MessageSquare, ScanEye } from 'lucide-react';
 import SkeletonCard from "./SkeletonCard";
 import SnowEffect from './SnowEffect';
 import { Snowflake } from 'lucide-react'; 
+import { useAuth } from './AuthContext';
+import { useNavigate } from 'react-router-dom';
+import FeedbackModal from './FeedbackModal';
 
 import {
    SiGithub,
@@ -17,10 +20,22 @@ import {
 
 import ChatAssistant from './ChatAssistant';
 import VisualIntelligence from './VisualIntelligence';
-import ReverseOSINT from './ReverseOSINT';
+import Challenge7Frontend from './Challenge7Frontend';
+import PreOSINT from './PreOSINT';
 
 
 export default function OSINTDashboard() {
+  const { currentUser, logout, isAdmin } = useAuth();
+  const navigate = useNavigate();
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+      navigate('/login');
+    } catch (error) {
+      console.error('Failed to logout:', error);
+  }
+};
   const [viewMode, setViewMode] = useState("user");
   const [activeTab, setActiveTab] = useState('multi-modal');
   const [targetInput, setTargetInput] = useState('');
@@ -39,6 +54,7 @@ export default function OSINTDashboard() {
      twitter: true
   });
 
+  const [feedbackModalOpen, setFeedbackModalOpen] = useState(false);
   const [backgroundTheme, setBackgroundTheme] = useState('Dark Mode');
   const [snowEnabled, setSnowEnabled] = useState(true);
 
@@ -78,8 +94,9 @@ const platformIcons = {
   const challenges = [
     { id: 'multi-modal', name: 'Multi-Modal Fusion', icon: Globe },
     { id: 'visual', name: 'Visual Intelligence', icon: Image },
+     { id: 'data-quality', name: 'Data Quality', icon: Activity },
     { id: 'risk', name: 'Risk Assessment', icon: Shield },
-    { id: 'reverse-osint', name: 'Reverse OSINT', icon: Eye }
+    { id: 'preosint', name: 'Pre-OSINT Scanner', icon: ScanEye },
   ];
 
   
@@ -205,6 +222,94 @@ const exploitabilityWeight = (risk) => {
   }
 };
 
+// --- Attack Primitive Mapping (1% Level) ---
+const attackerPrimitiveMap = (finding) => {
+  switch (finding.type) {
+    case "bio":
+      return "Social engineering pretext (trust & familiarity)";
+    case "username":
+      return "Cross-platform identity correlation";
+    case "tweet":
+      return "Behavioral profiling & timing inference";
+    case "repository":
+      return "Credential leakage & tech stack fingerprinting";
+    case "article":
+      return "Ideological alignment & narrative targeting";
+    case "email":
+      return "Direct phishing / account takeover vector";
+    case "location":
+      return "Physical proximity & stalking risk";
+    default:
+      return "Reconnaissance enrichment signal";
+  }
+};
+
+// --- Defensive Guidance Mapping ---
+const defensiveAdviceMap = (finding) => {
+  switch (finding.type) {
+    case "bio":
+      return "Reduce personal context in public bios.";
+    case "username":
+      return "Avoid reusing the same username across platforms.";
+    case "tweet":
+      return "Avoid real-time posting and routine disclosure.";
+    case "repository":
+      return "Scan repositories for secrets and sensitive data.";
+    case "article":
+      return "Avoid revealing strong ideological signals publicly.";
+    case "email":
+      return "Use email aliases and enable phishing protection.";
+    case "location":
+      return "Disable location sharing and metadata.";
+    default:
+      return "Review privacy and visibility settings.";
+  }
+};
+
+// --- MITRE ATT&CK Mapping ---
+const mitreMap = (finding) => {
+  switch (finding.type) {
+    case "bio":
+      return ["T1589"];
+    case "username":
+      return ["T1589.003"];
+    case "email":
+      return ["T1566.001"];
+    case "tweet":
+      return ["T1647"];
+    case "repository":
+      return ["T1552.001"];
+    case "article":
+      return ["T1589.002"];
+    case "location":
+      return ["T1591"];
+    default:
+      return ["T1590"];
+  }
+};
+
+// --- Kill Chain Phase Mapping ---
+const killChainMap = (finding) => {
+  switch (finding.type) {
+    case "username":
+      return "Reconnaissance";
+    case "bio":
+      return "Recon → Weaponization";
+    case "tweet":
+      return "Reconnaissance";
+    case "email":
+      return "Delivery";
+    case "repository":
+      return "Exploitation";
+    case "location":
+      return "Impact";
+    default:
+      return "Reconnaissance";
+  }
+};
+
+
+
 const renderFactor = (f) => {
   if (typeof f === "string") return f;
   if (typeof f === "object" && f !== null) {
@@ -227,6 +332,7 @@ const renderSafeText = (v) => {
   }
   return "";
 };
+const safeArray = (v) => Array.isArray(v) ? v : [];
 
 
 // ✅ Canonical Discovered Profiles (single source of truth)
@@ -332,6 +438,31 @@ const exploitTags = (finding) => {
   return ["PROFILING"];
 };
 
+// --- Exploit Chain Builder ---
+const buildExploitChain = (findings) => {
+  const chain = [];
+
+  if (findings.some(f => f.type === "username")) {
+    chain.push("Identity Correlation");
+  }
+  if (findings.some(f => f.type === "repository")) {
+    chain.push("Tech Stack & Credential Discovery");
+  }
+  if (findings.some(f => f.type === "email")) {
+    chain.push("Spear Phishing Delivery");
+  }
+  if (findings.some(f => f.type === "tweet")) {
+    chain.push("Behavioral Timing Optimization");
+  }
+
+  if (chain.length >= 2) {
+    chain.push("Account Compromise Potential");
+  }
+
+  return chain;
+};
+
+
 
  // ================= NORMALIZED RISK SCORE =================
 const riskScore = results?.risk_assessment?.risk_score
@@ -367,32 +498,59 @@ const riskScore = results?.risk_assessment?.risk_score
       }}></div>
 
       {/* Header */}
-      <header className="relative border-b border-purple-500/20 bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 backdrop-blur-sm">
-        <div className="max-w-7xl mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Target className="w-8 h-8 text-purple-400" />
-              <div>
-                <h1 className="text-2xl font-bold text-white">
-  CHAKRAVYUH 1.0
-</h1>
-<p className="text-sm text-white/80">
-  OSINT Intelligence Platform
-</p>
-
-              </div>
-            </div>
-            <div className="flex items-center gap-4">
-              <span className="text-sm text-purple-300">GITA Autonomous College</span>
-              <div className={`w-2 h-2 rounded-full ${backendStatus?.status === 'online' ? 'bg-green-400' : 'bg-red-400'} animate-pulse`}></div>
-              <span className="text-sm text-white">{backendStatus?.status === 'online' ? 'Backend Online' : 'Backend Offline'}</span>
-              {backendStatus?.ai_service && (
-                <span className="text-xs bg-purple-500/20 px-2 py-1 rounded">AI: {backendStatus.ai_service}</span>
-              )}
-            </div>
-          </div>
+<header className="relative border-b border-purple-500/20 bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 backdrop-blur-sm">
+  <div className="max-w-7xl mx-auto px-6 py-4">
+    <div className="flex items-center justify-between">
+      <div className="flex items-center gap-3">
+        <Target className="w-8 h-8 text-purple-400" />
+        <div>
+          <h1 className="text-2xl font-bold text-white">CHAKRAVYUH 1.0</h1>
+          <p className="text-sm text-white/80">OSINT Intelligence Platform</p>
         </div>
-      </header>
+      </div>
+      
+      <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2 text-sm">
+          <UserCircle className="w-4 h-4 text-purple-400" />
+          <span className="text-purple-300">{currentUser?.displayName || currentUser?.email}</span>
+        </div>
+        
+        {isAdmin && (
+          <button
+            onClick={() => navigate('/admin')}
+            className="flex items-center gap-2 px-3 py-1.5 bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 rounded-lg transition-colors"
+          >
+            <Shield className="w-4 h-4" />
+            <span className="text-xs">Admin</span>
+          </button>
+        )}
+        
+        <div className={`w-2 h-2 rounded-full ${backendStatus?.status === 'online' ? 'bg-green-400' : 'bg-red-400'} animate-pulse`}></div>
+        <span className="text-sm text-white">{backendStatus?.status === 'online' ? 'Backend Online' : 'Backend Offline'}</span>
+        
+        {backendStatus?.ai_service && (
+          <span className="text-xs bg-purple-500/20 px-2 py-1 rounded">AI: {backendStatus.ai_service}</span>
+        )}
+
+        <button
+          onClick={() => setFeedbackModalOpen(true)}
+          className="flex items-center gap-2 px-3 py-1.5 bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 rounded-lg transition-colors"
+        >
+          <MessageSquare className="w-4 h-4" />
+          <span className="text-xs">Feedback</span>
+        </button>
+        
+        <button
+          onClick={handleLogout}
+          className="flex items-center gap-2 px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded-lg transition-colors"
+        >
+          <LogOut className="w-4 h-4" />
+          <span className="text-xs">Logout</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</header>
 
       <div className="relative max-w-7xl mx-auto px-6 py-8">
         {/* Challenge Tabs */}
@@ -554,7 +712,7 @@ const riskScore = results?.risk_assessment?.risk_score
 
 {!analyzing && results && (
   <div className="mt-6 space-y-4">
- 
+    
  {/* 🔗 Multi-Modal Fusion Card */}
 {results?.multi_modal_fusion && (
   <div className="bg-gradient-to-br from-indigo-500/10 to-purple-600/10 border border-purple-500/30 rounded-xl p-5">
@@ -725,6 +883,7 @@ const riskScore = results?.risk_assessment?.risk_score
   {profile.verification === "api_verified" ? "verified" : "weak verified"}
 </span>
 
+
         </a>
       ))}
     </div>
@@ -774,6 +933,9 @@ const riskScore = results?.risk_assessment?.risk_score
     <p className="text-sm text-gray-300 leading-relaxed">
       {renderSafeText(results.ai_analysis.summary) || "AI analysis completed. See detailed findings below."}
     </p>
+
+        
+
 
     {results.ai_analysis.risk_assessment && (
       <div className="mt-3 p-3 bg-black/40 rounded-lg">
@@ -867,45 +1029,68 @@ const riskScore = results?.risk_assessment?.risk_score
 )}
 
 
-    {/* Show patterns if available */}
-    {results.ai_analysis.patterns && 
-     results.ai_analysis.patterns.length > 0 && (
-      <div className="mt-3 p-3 bg-black/40 rounded-lg">
-        <p className="text-xs text-purple-300 mb-2">📊 Behavioral Patterns:</p>
-        <ul className="space-y-1">
-          {results.ai_analysis.patterns.slice(0, 3).map((pattern, idx) => (
-            <li key={idx} className="text-xs text-gray-400 flex items-start gap-2">
-              <span className="text-blue-400">▸</span>
-                  <span>
-      {typeof pattern === "string"
-        ? pattern
-        : `${pattern.pattern}${pattern.type ? ` (${pattern.type})` : ""}`}
-    </span>
-            </li>
-          ))}
-        </ul>
-      </div>
-    )}
+    {/* Behavioral Patterns */}
+<div className="mt-3 p-3 bg-black/40 rounded-lg">
+  <p className="text-xs text-purple-300 mb-2">📊 Behavioral Patterns:</p>
 
-    {/* Show correlations if available */}
-    {results.ai_analysis.correlations && 
-     results.ai_analysis.correlations.length > 0 && (
-      <div className="mt-3 p-3 bg-black/40 rounded-lg">
-        <p className="text-xs text-purple-300 mb-2">🔗 Cross-Platform Correlations:</p>
-        <ul className="space-y-1">
-          {results.ai_analysis.correlations.slice(0, 3).map((correlation, idx) => (
-            <li key={idx} className="text-xs text-gray-400 flex items-start gap-2">
-              <span className="text-green-400">✓</span>
-              <span>
-      {typeof correlation === "string"
-        ? correlation
-        : `${correlation.pattern || ""}${correlation.type ? ` (${correlation.type})` : ""}`}
-    </span>
-            </li>
-          ))}
-        </ul>
-      </div>
-    )}
+  {safeArray(results?.ai_analysis?.patterns).length > 0 ? (
+    <ul className="space-y-1">
+      {safeArray(results.ai_analysis.patterns).slice(0, 3).map((pattern, idx) => (
+        <li
+          key={idx}
+          className="text-xs text-gray-400 flex items-start gap-2"
+        >
+          <span className="text-blue-400">▸</span>
+          <span>
+            {typeof pattern === "string"
+              ? pattern
+              : `${pattern.pattern || "Pattern"}${
+                  pattern.type ? ` (${pattern.type})` : ""
+                }`}
+          </span>
+        </li>
+      ))}
+    </ul>
+  ) : (
+    <p className="text-xs text-gray-500 italic">
+      No strong behavioral patterns detected.
+    </p>
+  )}
+</div>
+
+    {/* Cross-Platform Correlations */}
+<div className="mt-3 p-3 bg-black/40 rounded-lg">
+  <p className="text-xs text-purple-300 mb-2">
+    🔗 Cross-Platform Correlations:
+  </p>
+
+  {safeArray(results?.ai_analysis?.correlations).length > 0 ? (
+    <ul className="space-y-1">
+      {safeArray(results.ai_analysis.correlations)
+        .slice(0, 3)
+        .map((correlation, idx) => (
+          <li
+            key={idx}
+            className="text-xs text-gray-400 flex items-start gap-2"
+          >
+            <span className="text-green-400">✓</span>
+            <span>
+              {typeof correlation === "string"
+                ? correlation
+                : `${correlation.pattern || "Correlation"}${
+                    correlation.type ? ` (${correlation.type})` : ""
+                  }`}
+            </span>
+          </li>
+        ))}
+    </ul>
+  ) : (
+    <p className="text-xs text-gray-500 italic">
+      No significant cross-platform correlations identified.
+    </p>
+  )}
+</div>
+
   </div>
 )}
   
@@ -924,14 +1109,39 @@ const riskScore = results?.risk_assessment?.risk_score
   />
 )}
 
-{/* Reverse OSINT */}
-{activeTab === 'reverse-osint' && (
-  <ReverseOSINT
-    backendStatus={backendStatus}
-    BACKEND_URL={BACKEND_URL}
-  />
+{/* Data Quality & Robustness Tab */}
+{activeTab === 'data-quality' && results && (
+  <div className="space-y-6">
+    <div className="bg-black/50 backdrop-blur-sm border border-purple-500/20 rounded-xl p-6">
+      <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+        <Activity className="w-5 h-5 text-blue-400" />
+        Real-World Data Quality Assessment
+      </h2>
+      
+      <Challenge7Frontend 
+        results={results} 
+        discoveredProfiles={discoveredProfiles}
+        platformIcons={platformIcons}
+      />
+    </div>
+  </div>
 )}
-  
+
+{/* No results in data quality tab */}
+{activeTab === 'data-quality' && !results && (
+  <div className="bg-black/50 backdrop-blur-sm border border-purple-500/20 rounded-xl p-12 text-center">
+    <Activity className="w-16 h-16 mx-auto mb-4 text-blue-400" />
+    <h3 className="text-xl font-semibold mb-2">No Analysis Data</h3>
+    <p className="text-gray-400 mb-6">Run an analysis in the Multi-Modal Fusion tab first to see data quality metrics.</p>
+    <button
+      onClick={() => setActiveTab('multi-modal')}
+      className="px-6 py-3 bg-purple-600 hover:bg-purple-700 rounded-lg font-medium transition-colors"
+    >
+      Go to Analysis Tab
+    </button>
+  </div>
+)}
+
           {/* Risk Assessment */}
         {activeTab === 'risk' && results && (
           <div className="space-y-6">
@@ -974,15 +1184,57 @@ const riskScore = results?.risk_assessment?.risk_score
   </div>
 </div>
 {/* Attacker recon notice (ONLY when no CRITICAL exists) */}
-{viewMode === "attacker" &&
-  !results.findings.some(f => f.risk === "CRITICAL") && (
-    <div className="mb-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3">
-      <p className="text-sm text-yellow-300">
-        No immediate critical exploits detected. Target is suitable for
-        reconnaissance, profiling, and future social engineering.
-      </p>
-    </div>
+{viewMode === "attacker" && (
+  <div className="mb-4 bg-red-500/10 border border-red-500/30 rounded-lg p-4">
+    <p className="text-sm text-red-300 font-semibold mb-1">
+      🧠 Attack Primitive Mapping (1% Level)
+    </p>
+    <p className="text-xs text-red-200">
+      Each exposed signal below maps to a reusable attacker primitive.
+      Correlation — not a single leak — is the weapon.
+    </p>
+  </div>
 )}
+
+{viewMode === "user" && (
+  <div className="mb-4 bg-green-500/10 border border-green-500/30 rounded-lg p-4">
+    <p className="text-sm text-green-300 font-semibold mb-1">
+      🛡 Defensive Exposure Guidance
+    </p>
+    <p className="text-xs text-green-200">
+      The findings below explain how to reduce exposure and harden your privacy posture.
+    </p>
+  </div>
+)}
+
+{viewMode === "attacker" && (
+  <div className="mb-6 bg-black/60 border border-red-500/30 rounded-lg p-4">
+    <h3 className="text-sm font-semibold text-red-300 mb-2">
+      🔗 Exploit Chain Visualization
+    </h3>
+
+    {buildExploitChain(displayFindings).length > 0 ? (
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        {buildExploitChain(displayFindings).map((step, idx) => (
+          <React.Fragment key={idx}>
+            <span className="px-3 py-1 bg-red-500/20 text-red-300 rounded">
+              {step}
+            </span>
+            {idx < buildExploitChain(displayFindings).length - 1 && (
+              <span className="text-red-400">→</span>
+            )}
+          </React.Fragment>
+        ))}
+      </div>
+    ) : (
+      <p className="text-xs text-gray-500">
+        Insufficient signals to construct exploit chain.
+      </p>
+    )}
+  </div>
+)}
+
+
 
 <div className="bg-black/60 border border-purple-500/20 rounded-lg p-4 mt-4">
  <h3 className="text-sm font-semibold mb-1">
@@ -1073,9 +1325,34 @@ const riskScore = results?.risk_assessment?.risk_score
                             <span className="text-sm font-bold text-white">{riskScore}/10</span>
                           </div>
                           <p className="text-sm mb-2">
-  {viewMode === "user"
-    ? item.value
-    : attackerNarrative(item)}
+  {viewMode === "user" ? (
+    <>
+      <span className="block text-gray-300">
+        {item.value}
+      </span>
+      <span className="block text-xs text-green-400 mt-1">
+        Defense: {defensiveAdviceMap(item)}
+      </span>
+    </>
+  ) : (
+    <>
+      <span className="block text-gray-300">
+        {item.value}
+      </span>
+      <span className="block text-xs text-red-400 mt-1">
+  Attack Primitive: {attackerPrimitiveMap(item)}
+</span>
+
+<span className="block text-[11px] text-orange-300 mt-1">
+  Kill Chain Phase: {killChainMap(item)}
+</span>
+
+<span className="block text-[11px] text-purple-300 mt-1">
+  MITRE ATT&CK: {mitreMap(item).join(", ")}
+</span>
+
+    </>
+  )}
 </p>
 
 {/* 🔥 ADD THIS RIGHT HERE */}
@@ -1129,21 +1406,37 @@ const riskScore = results?.risk_assessment?.risk_score
                     <p className="text-sm text-purple-300">Overall Risk Level: <span className="font-bold text-lg">{results.ai_analysis.risk_assessment.level}</span></p>
                     <p className="text-sm text-purple-300">AI Risk Score: <span className="font-bold">{results.ai_analysis.risk_assessment.score}/10</span></p>
                   </div>
-                  {results.ai_analysis.risk_assessment.factors && results.ai_analysis.risk_assessment.factors.length > 0 && (
-                    <ul className="space-y-2 text-sm text-gray-300">
-     {results.ai_analysis.risk_assessment.factors.map((f, idx) => (
-  <li key={idx} className="flex items-start gap-2">
-    <span className="text-purple-400 mt-1">•</span>
-    <span>
-      {typeof f === "string"
-        ? f
-        : `${f.factor} (score: ${f.score})`}
-    </span>
-  </li>
-))}
+                  {/* AI Risk Factors */}
+<div className="mt-3">
+  <p className="text-xs text-purple-300 mb-2">⚠️ Key Risk Factors:</p>
 
-                    </ul>
-                  )}
+  {safeArray(results?.ai_analysis?.risk_assessment?.factors).length > 0 ? (
+    <ul className="space-y-1">
+      {safeArray(results.ai_analysis.risk_assessment.factors)
+        .slice(0, 3)
+        .map((f, idx) => (
+          <li
+            key={idx}
+            className="text-xs text-gray-400 flex items-start gap-2"
+          >
+            <span className="text-purple-400">•</span>
+            <span>
+              {typeof f === "string"
+                ? f
+                : `${f.factor || "Risk factor"}${
+                    f.score !== undefined ? ` (score: ${f.score})` : ""
+                  }`}
+            </span>
+          </li>
+        ))}
+    </ul>
+  ) : (
+    <p className="text-xs text-gray-500 italic">
+      No explicit AI risk factors generated.
+    </p>
+  )}
+</div>
+
                 </div>
               )}
             </div>
@@ -1166,6 +1459,13 @@ const riskScore = results?.risk_assessment?.risk_score
         )}
       </div>
 
+        {/* NEW: PreOSINT Tab */}
+        {activeTab === 'preosint' && (
+          <div className="space-y-6">
+            <PreOSINT BACKEND_URL={BACKEND_URL} />
+          </div>
+        )}
+      
         {/* Chat Assistant - Add this right before the Footer */}
      <ChatAssistant 
   backendStatus={backendStatus}
@@ -1175,6 +1475,11 @@ const riskScore = results?.risk_assessment?.risk_score
   setBackgroundTheme={setBackgroundTheme}
 />
 
+{/* Feedback Modal */}
+<FeedbackModal 
+  isOpen={feedbackModalOpen} 
+  onClose={() => setFeedbackModalOpen(false)} 
+/>
 
       {/* Footer */}
       <footer className="relative mt-12 border-t border-purple-500/20 bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 backdrop-blur-sm py-6">
