@@ -1,12 +1,13 @@
 from unittest import result
 from dotenv import load_dotenv
 load_dotenv()
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
+from werkzeug.utils import secure_filename
 import requests
 from bs4 import BeautifulSoup
 import os
-import re
+import re 
 import traceback
 from datetime import datetime, timedelta
 import time
@@ -17,10 +18,15 @@ import io
 import tempfile
 from dataclasses import dataclass, asdict
 from enum import Enum
+import sqlite3
+from functools import wraps
+import firebase_admin
+from firebase_admin import credentials, auth as firebase_auth
+from challenge7_backend import RealWorldOSINTHandler
 
 load_dotenv()
 from visual import visual_bp
-from reverse_osint import reverse_osint_bp
+from preosint import preosint_bp
 
 
 
@@ -28,8 +34,85 @@ from reverse_osint import reverse_osint_bp
 app = Flask(__name__)
 CORS(app)
 
+
+# File upload configuration
+UPLOAD_FOLDER = 'uploads'
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'mp4', 'mov', 'avi', 'webm', 'pdf'}
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max
+
+# Ensure upload folder exists
+import os
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
+    print(f"✅ Created upload folder: {UPLOAD_FOLDER}")
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
 app.register_blueprint(visual_bp)
-app.register_blueprint(reverse_osint_bp)
+app.register_blueprint(preosint_bp)
+
+# Initialize Firebase Admin SDK (add after app initialization)
+try:
+    cred = credentials.Certificate(os.environ.get('FIREBASE_CREDENTIALS_PATH', 'firebase-credentials.json'))
+    firebase_admin.initialize_app(cred)
+    print("✅ Firebase Admin SDK initialized")
+except Exception as e:
+    print(f"⚠️ Firebase Admin SDK initialization failed: {e}")
+
+# Initialize SQLite Database
+def init_db():
+    conn = sqlite3.connect('chakravyuh.db')
+    c = conn.cursor()
+    
+    # Create feedback table with file storage
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS feedback (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_email TEXT,
+            title TEXT DEFAULT 'No Title',
+            feedback_type TEXT DEFAULT 'other',
+            priority TEXT DEFAULT 'medium',
+            message TEXT NOT NULL,
+            file_count INTEGER DEFAULT 0,
+            file_paths TEXT,
+            rating INTEGER,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    conn.commit()
+    conn.close()
+    print("✅ Database initialized with file storage support")
+
+init_db()
+
+# Admin Authentication Decorator
+def admin_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        auth_header = request.headers.get('Authorization')
+        
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'error': 'Unauthorized - No token provided'}), 401
+        
+        token = auth_header.split('Bearer ')[1]
+        
+        try:
+            # Verify Firebase token
+            decoded_token = firebase_auth.verify_id_token(token)
+            user_email = decoded_token.get('email')
+            
+            # Check if user is admin
+            admin_email = os.environ.get('ADMIN_EMAIL', 'animeshmohanty59@gmail.com')
+            if user_email != admin_email:
+                return jsonify({'error': 'Unauthorized - Admin access required'}), 403
+            
+            return f(*args, **kwargs)
+        except Exception as e:
+            return jsonify({'error': f'Invalid token: {str(e)}'}), 401
+    
+    return decorated_function
 
 
 # Configuration
@@ -1405,20 +1488,52 @@ class AIAnalyzer:
             }
 
         prompt = f"""
-You are an OSINT analyst.
+You are a professional OSINT analyst.
 
 Target: {target}
 
-Collected data:
+Collected OSINT data:
 {json.dumps(collected_data, indent=2)}
 
-Return ONLY valid JSON with:
-- entities
-- patterns
-- correlations
-- risk_assessment {{ score, level, factors }}
-- summary
+You MUST return ONLY valid JSON.
+
+ENTITIES ARE MANDATORY.
+If an entity exists, it MUST be listed.
+If none exist for a category, return an empty array.
+
+Required JSON schema:
+
+{{
+  "entities": {{
+    "usernames": [],
+    "emails": [],
+    "platforms": [],
+    "organizations": [],
+    "domains": [],
+    "locations": []
+  }},
+  "patterns": [
+    "behavioral or activity patterns"
+  ],
+  "correlations": [
+    "cross-platform correlations"
+  ],
+  "risk_assessment": {{
+    "score": 0-10,
+    "level": "LOW | MEDIUM | HIGH | CRITICAL",
+    "factors": []
+  }},
+  "summary": "concise OSINT summary"
+}}
+
+Rules:
+- Extract usernames from profiles, URLs, handles
+- Extract platforms from discovered accounts
+- Extract organizations from company, employer, GitHub orgs
+- Extract emails/domains if present
+- Do NOT return prose outside JSON
 """
+
 
         try:
             if self.service == "groq":
@@ -1510,16 +1625,24 @@ Return ONLY valid JSON with:
             pass
 
         return {
-            "summary": text[:500],
-            "entities": {},
-            "patterns": [],
-            "correlations": [],
-            "risk_assessment": {
-                "score": 0,
-                "level": "UNKNOWN",
-                "factors": []
-            }
-        }
+    "summary": text[:500],
+    "entities": {
+        "usernames": [],
+        "emails": [],
+        "platforms": [],
+        "organizations": [],
+        "domains": [],
+        "locations": []
+    },
+    "patterns": [],
+    "correlations": [],
+    "risk_assessment": {
+        "score": 0,
+        "level": "UNKNOWN",
+        "factors": []
+    }
+}
+
 
 
 
@@ -1634,6 +1757,8 @@ def analyze():
         if not target:
             return jsonify({'error': 'Target parameter required'}), 400
 
+        robustness_handler = RealWorldOSINTHandler()
+
         # 🔍 Username existence detection
         enumerator = UniversalUsernameEnumerator(PLATFORM_RULES)
         raw_presence = enumerator.check_username(target)
@@ -1722,7 +1847,7 @@ def analyze():
                  f"https://www.youtube.com/@{target}",
                  "weak_verified",
                  platform_presence.get("youtube", {}).get("exists", False)
-    )
+           )
             if cp:
                canonical_profiles["youtube"] = cp
 
@@ -1780,6 +1905,8 @@ def analyze():
         # Breach check
         if '@' in target:
             results['haveibeenpwned'] = hibp_collector.collect(target)
+        
+        challenge7_results = robustness_handler.process_results(results, target)
 
         # -------- RISK ASSESSMENT --------
         risk_engine = RiskAssessmentEngine(AI_SERVICE)
@@ -1804,14 +1931,43 @@ def analyze():
             analyzer = AIAnalyzer(AI_SERVICE)
             ai_analysis = analyzer.analyze_data(results, target)
 
-        if not ai_analysis or not ai_analysis.get("summary"):
-            ai_analysis = {
-                "summary": "AI analysis not available.",
-                "entities": {},
-                "patterns": [],
-                "correlations": [],
-                "risk_assessment": {"score": 0, "level": "UNKNOWN", "factors": []}
-            }
+     # ---- ENTITY SAFETY NET (DERIVED ENTITIES) ----
+        entities = ai_analysis.get("entities", {})
+
+        # Ensure structure
+        entities.setdefault("usernames", [])
+        entities.setdefault("platforms", [])
+        entities.setdefault("organizations", [])
+
+        # Derive username
+        if target and target not in entities["usernames"]:
+            entities["usernames"].append(target)
+ 
+        # Derive platforms from canonical profiles
+        for p in canonical_profiles.keys():
+            if p not in entities["platforms"]:
+                entities["platforms"].append(p)
+
+        # Derive organizations from GitHub
+        gh = results.get("github", {})
+        company = gh.get("profile", {}).get("company")
+        if company and company not in entities["organizations"]:
+            entities["organizations"].append(company)
+
+        ai_analysis["entities"] = entities
+        
+        if not ai_analysis:
+            ai_analysis = {}
+
+        ai_analysis.setdefault("summary", "AI analysis not available.")
+        ai_analysis.setdefault("entities", {})
+        ai_analysis.setdefault("patterns", [])
+        ai_analysis.setdefault("correlations", [])
+        ai_analysis.setdefault("risk_assessment", {
+            "score": 0,
+            "level": "UNKNOWN",
+            "factors": []
+        })
 
         # -------- FINDINGS --------
         content_findings = extract_content_findings(
@@ -1826,7 +1982,10 @@ def analyze():
                 "username": v["username"],
                 "profile_url": v["profile_url"],
                 "verification": v["verification"],
-                "exists": True
+                "exists": True,
+                # ✨ Challenge 7 additions
+                "data_completeness": results[k].get('profile', {}).get('data_completeness', 0),
+                "freshness": results[k].get('freshness', 'FRESH')
             }
             for k, v in canonical_profiles.items()
         ]
@@ -1839,7 +1998,13 @@ def analyze():
             "multi_modal_fusion": multi_modal_fusion,
             "risk_assessment": risk_report,
             "ai_analysis": ai_analysis,
-            "findings": (risk_report["risk_items"][:10] + content_findings)[:15]
+            "findings": content_findings[:15],
+            
+            # ✨ NEW Challenge 7 Features
+            "consolidated_intelligence": challenge7_results['consolidated_intelligence'],
+            "behavioral_patterns": challenge7_results['behavioral_patterns'],
+            "data_quality": challenge7_results['data_quality'],
+            "duplicates_removed": challenge7_results['duplicates_removed']
         }
 
         return jsonify(response), 200
@@ -1847,9 +2012,6 @@ def analyze():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
     
-
-
-
 
 @app.route('/api/health', methods=['GET'])
 def health():
@@ -1873,9 +2035,220 @@ def health():
     }), 200
 
 
+# ==================== FEEDBACK ROUTES ====================
+
+@app.route('/api/upload-files', methods=['POST'])
+def upload_files():
+    """Upload feedback files"""
+    try:
+        if 'files' not in request.files:
+            return jsonify({'error': 'No files provided'}), 400
+        
+        files = request.files.getlist('files')
+        uploaded_files = []
+        
+        for file in files:
+            if file and allowed_file(file.filename):
+                # Create unique filename
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                original_filename = secure_filename(file.filename)
+                unique_filename = f"{timestamp}_{original_filename}"
+                
+                # Save file
+                filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+                file.save(filepath)
+                
+                uploaded_files.append({
+                    'filename': unique_filename,  # ✅ This is what gets stored on disk
+                    'original_name': original_filename,  # ✅ This is the display name
+                    'size': os.path.getsize(filepath)
+                })
+                
+                print(f"✅ Uploaded file: {unique_filename} (original: {original_filename})")
+        
+        return jsonify({
+            'success': True,
+            'files': uploaded_files
+        }), 200
+        
+    except Exception as e:
+        print(f"❌ Upload Error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/feedback', methods=['POST'])
+def submit_feedback():
+    """Submit user feedback with file references"""
+    try:
+        data = request.get_json()
+        user_email = data.get('email', 'Anonymous')
+        title = data.get('title', 'No Title')
+        message = data.get('message', '')
+        feedback_type = data.get('type', 'other')
+        priority = data.get('priority', 'medium')
+        rating = data.get('rating')
+        
+        # Get uploaded file paths
+        uploaded_files = data.get('uploaded_files', [])
+        file_count = len(uploaded_files)
+        file_paths = json.dumps(uploaded_files) if uploaded_files else None
+        
+        print(f"📝 Feedback: title={title}, files={file_count}, paths={file_paths}")
+        
+        if not message:
+            return jsonify({'error': 'Message is required'}), 400
+        
+        conn = sqlite3.connect('chakravyuh.db')
+        c = conn.cursor()
+        
+        c.execute(
+            '''INSERT INTO feedback 
+            (user_email, title, feedback_type, priority, message, file_count, file_paths, rating) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+            (user_email, title, feedback_type, priority, message, file_count, file_paths, rating)
+        )
+        conn.commit()
+        conn.close()
+        
+        print(f"✅ Feedback saved with {file_count} files")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Feedback submitted successfully'
+        }), 200
+        
+    except Exception as e:
+        print(f"❌ Feedback Error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/admin/feedback', methods=['GET'])
+@admin_required
+def get_feedback():
+    """Get all feedback (Admin only)"""
+    try:
+        conn = sqlite3.connect('chakravyuh.db')
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        c.execute('SELECT * FROM feedback ORDER BY timestamp DESC')
+        rows = c.fetchall()
+        conn.close()
+        
+        feedback = []
+        for row in rows:
+            # Parse file paths from JSON
+            file_paths = json.loads(row['file_paths']) if row['file_paths'] else []
+            
+            feedback_item = {
+                'id': row['id'],
+                'email': row['user_email'],
+                'title': row['title'],
+                'feedback_type': row['feedback_type'],
+                'priority': row['priority'],
+                'message': row['message'],
+                'file_count': row['file_count'],
+                'file_paths': file_paths,
+                'rating': row['rating'],
+                'timestamp': row['timestamp']
+            }
+            feedback.append(feedback_item)
+        
+        return jsonify({'feedback': feedback}), 200
+        
+    except Exception as e:
+        print(f"❌ Get Feedback Error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/admin/feedback/<int:feedback_id>', methods=['DELETE'])
+@admin_required
+def delete_feedback(feedback_id):
+    """Delete feedback (Admin only)"""
+    try:
+        conn = sqlite3.connect('chakravyuh.db')
+        c = conn.cursor()
+        c.execute('DELETE FROM feedback WHERE id = ?', (feedback_id,))
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'success': True}), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/admin/stats', methods=['GET'])
+@admin_required
+def get_admin_stats():
+    """Get admin statistics"""
+    try:
+        conn = sqlite3.connect('chakravyuh.db')
+        c = conn.cursor()
+        
+        # Get feedback count
+        c.execute('SELECT COUNT(*) FROM feedback')
+        total_feedback = c.fetchone()[0]
+        
+        conn.close()
+        
+        # Get Firebase user count (if possible)
+        try:
+            users = firebase_auth.list_users()
+            total_users = len(users.users)
+        except:
+            total_users = 0
+        
+        return jsonify({
+            'stats': {
+                'totalUsers': total_users,
+                'totalFeedback': total_feedback,
+                'pendingFeedback': total_feedback
+            }
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/uploads/<filename>')
+def serve_file(filename):
+    """Serve uploaded files"""
+    try:
+        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        
+        # Debug logging
+        print(f"📂 Requested file: {filename}")
+        print(f"📍 Upload folder: {app.config['UPLOAD_FOLDER']}")
+        print(f"🔍 Full path: {file_path}")
+        print(f"✅ File exists: {os.path.exists(file_path)}")
+        
+        # List all files if not found
+        if not os.path.exists(file_path):
+            available_files = os.listdir(app.config['UPLOAD_FOLDER'])
+            print(f"❌ File not found: {filename}")
+            print(f"📁 Available files: {available_files}")
+            return jsonify({
+                'error': 'File not found',
+                'requested': filename,
+                'available': available_files
+            }), 404
+        
+        return send_from_directory(
+            app.config['UPLOAD_FOLDER'], 
+            filename,
+            as_attachment=False
+        )
+    except Exception as e:
+        print(f"❌ Error serving file: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
     print(f"🚀 CHAKRAVYUH 1.0 OSINT Backend Starting...")
     print(f"🔡 AI Service: {AI_SERVICE or 'None configured'}")
     print(f"🛡️  Risk Assessment: Enabled with {AI_SERVICE or 'basic scoring'}")
     print(f"📊 Risk Analyzer: {'AI-Enhanced' if AI_SERVICE else 'Rule-Based Only'}")
+    print(f"🔍 PreOSINT Scanner: Enabled")
     app.run(debug=True, port=5000)

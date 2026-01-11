@@ -13,6 +13,7 @@
 In Terminal Do: 
 ```bash
 pip install -r requirements.txt
+pip install firebase-admin PyJWT
 ```
 
 #### 2. Configure Environment Variables
@@ -83,6 +84,7 @@ npm install lucide-react
 npm install -D tailwindcss postcss autoprefixer
 npx tailwindcss init -p
 npm install react-icons
+npm install firebase emailjs-com react-router-dom
 ```
 
 #### 2. Start Frontend
@@ -148,6 +150,33 @@ curl -X POST http://localhost:5001/api/geolocation/video \
   -F "file=@/path/to/video.mp4" \
   -F "num_frames=5"
 ```
+## 🔥 Step 3: Firebase Setup
+
+### 3.1 Create Firebase Project
+1. Go to [Firebase Console](https://console.firebase.google.com/)
+2. Create new project: "CHAKRAVYUH-OSINT"
+3. Enable **Authentication** → **Email/Password**
+4. Go to **Project Settings** → **Service Accounts** → **Generate new private key**
+5. Download the JSON file and save as `firebase-credentials.json` in your project root
+6. **Verify file structure:**
+```
+   src/
+   ├── app.py
+   ├── chakravyuh.db
+   ├── challenge7_backend.py
+   ├── firebase-credentials.json     <----- Add here firebase-credentials.json file
+   ├── Package-lock.json
+   ├── Package.json
+   ├── Readme.md
+   └── Visual.py
+
+### 3.2 Get Firebase Web Config
+1. In Firebase Console → **Project Settings** → **General**
+2. Scroll to "Your apps" → Click **Web** icon
+3. Copy the `firebaseConfig` object
+4. Add firebaseconfig credentials to .env whatever asked
+
+---
 
 ## 📁 Project Structure
 
