@@ -201,24 +201,37 @@ hackathon-osint/
 │   ├── uparrow.png
 │   └── wait-ezgif.com-ani-to-gif-converter.gif
 ├── src/
+│   ├── AdminPanel.js
 │   ├── App.css                    
 │   ├── App.js
 │   ├── App.test.js
+│   ├── AuthContext.js
+│   ├── Challenge7Frontend.js
 │   ├── ChatAssistant.js 
+│   ├── FeedbackModal.js
+│   ├── firebase.js
 │   ├── index.css
 │   ├── index.js
+│   ├── Login.js
 │   ├── logo.svg
 │   ├── OSINTDashboard.js
+│   ├── PreOSINT.js
+│   ├── ProtectedRoute.js
+│   ├── Register.js
 │   ├── reportWebVitals.js   
 │   ├── ReverseOSINT.js                    
 │   ├── setupTests.js
 │   ├── SkeletonCard
 │   ├── SnowEffect.js
 │   └── VisualIntelligence.js
+├── uploads/
+│   ├── all images or videos of feedback submission will appear here
+│   └── all images or videos of feedback submission will appear here
 ├── .env
 ├── app.py
+├── challenge7_backend.py
 ├── visual.py
-├── reverse_osint.py
+├── preosint.py
 ├── package-lock.json
 ├── package.json
 ├── postcssconfig.js
