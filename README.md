@@ -169,7 +169,7 @@ curl -X POST http://localhost:5001/api/geolocation/video \
    ├── Package.json
    ├── Readme.md
    └── Visual.py
-
+```
 ### 3.2 Get Firebase Web Config
 1. In Firebase Console → **Project Settings** → **General**
 2. Scroll to "Your apps" → Click **Web** icon
